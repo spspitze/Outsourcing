@@ -12,7 +12,7 @@ library(DescTools)
 library(tidyverse)
 
 # Folders of interest
-clean_folder <- "Cleaned Data/"
+clean_folder <- "../Cleaned Data/"
 table_folder <- "../Tables/"
 figure_folder <- "../Figures/NLSY 79/"
 

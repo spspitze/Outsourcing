@@ -11,7 +11,7 @@ library(tidyverse)
 library(data.table)
 
 # Folders of interest
-clean_folder <- "Cleaned Data/"
+clean_folder <- "../Cleaned Data/"
 
 timeline <- fread(str_c(clean_folder, "timeline_clean_occ.csv"))
 

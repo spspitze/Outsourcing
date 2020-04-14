@@ -6,8 +6,8 @@ library(multiplex)
 library(tidyverse)
 
 # Folders of interest
-raw_folder <- "Raw Data/"
-clean_folder <- "Cleaned Data/"
+raw_folder <- "../Raw Data/"
+clean_folder <- "../Cleaned Data/"
 
 
 new_data <- read_table2(str_c(raw_folder, "emp_sup_raw.dat"))

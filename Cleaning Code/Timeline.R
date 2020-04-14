@@ -18,7 +18,7 @@ library(data.table)
 library(lubridate)
 
 # Folders of interest
-clean_folder <- "Cleaned Data/"
+clean_folder <- "../Cleaned Data/"
 
 # Import data using tidyverse to make sure dates are read, then
 # convert into data.table

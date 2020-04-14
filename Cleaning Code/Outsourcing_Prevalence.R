@@ -14,7 +14,7 @@ library(lubridate)
 library(tidyverse)
 
 # Folders of interest
-clean_folder <- "Cleaned Data/"
+clean_folder <- "../Cleaned Data/"
 table_folder <- "../Tables/"
 
 # Dataset is large, need to read as data table
