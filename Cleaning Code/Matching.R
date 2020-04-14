@@ -9,9 +9,9 @@ library(lubridate)
 library(tidyverse)
 
 # Folders of interest
-raw_folder <- "../Raw Data/"
-clean_folder <- "../Cleaned Data/"
-table_folder <- "../../Tables/"
+raw_folder <- "Raw Data/"
+clean_folder <- "Cleaned Data/"
+table_folder <- "../Tables/"
 
 # This is data from the Employer History Roster
 hist_rost <- read_csv(str_c(clean_folder, "emp_hist_rost_clean.csv")) 

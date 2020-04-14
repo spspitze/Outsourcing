@@ -14,8 +14,8 @@ library(lubridate)
 library(tidyverse)
 
 # Folders of interest
-clean_folder <- "../Cleaned Data/"
-table_folder <- "../../Tables/"
+clean_folder <- "Cleaned Data/"
+table_folder <- "../Tables/"
 
 # Dataset is large, need to read as data table
 timeline <- fread(str_c(clean_folder, "timeline_clean.csv"))

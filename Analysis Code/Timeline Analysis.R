@@ -15,9 +15,9 @@ library(lubridate)
 library(tidyverse)
 
 # Folders of interest
-clean_folder <- "../Cleaned Data/"
-table_folder <- "../../Tables/"
-figure_folder <- "../../Figures/NLSY 79 Timeline/"
+clean_folder <- "Cleaned Data/"
+table_folder <- "../Tables/"
+figure_folder <- "../Figures/NLSY 79 Timeline/"
 
 # For saving graphs
 aspect_ratio <- 1.62
