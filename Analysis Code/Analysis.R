@@ -1577,7 +1577,8 @@ var_r <- c("log_real_hrly_wage", "log_real_wkly_wage", "job_sat",
            "any_benefits", "health")
 
 var_names <- c("log real hourly wages", "log real weekly wages", 
-               "job satisfaction (lower is better)", "receiving any employment benefits",
+               "job satisfaction (lower is better)",
+               "receiving any employment benefits",
                "receiving health insurance through employer")
 
 sex_names <- c("men", "women")

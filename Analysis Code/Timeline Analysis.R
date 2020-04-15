@@ -122,6 +122,16 @@ p_stars <- function(p){
   return(stars)
 }
 
+# Create a function that makes a formula given dependent variable 
+# and list of independent variables
+create_formula <- function(y, x_list) {
+  vars <- x_list %>% 
+    map(str_c, collapse = "+") %>% 
+    str_c(collapse = "+")
+  
+  eq <- formula(str_c(y, vars, sep = "~"))
+}
+
 # Define our default table top
 table_top <- "\\documentclass[12pt]{article}
 \\usepackage[margin=.5in]{geometry}
@@ -1190,23 +1200,51 @@ dem_controls <- c("age", "age_2", "age_3", "age_4", "tot_child", "hh_child")
 
 # Current job control
 curr_controls <- c("hours_week_curr", "part_time_curr", "union__curr", 
-                   "health_curr", "retirement_curr", "log_real_wkly_wage_curr")
+                   "health_curr", "retirement_curr",
+                   "any_benefits_curr","log_real_wkly_wage_curr")
 
 # Last job controls
 last_controls <- c("hours_week_last", "part_time_last", "union__last", 
-                   "health_last", "retirement_last", "log_real_wkly_wage_last",
+                   "health_last", "retirement_last",
+                   "any_benefits_last", "log_real_wkly_wage_last",
                    "tenure_last", "tenure_2_last", "tenure_3_last", "tenure_4_last")
 
 ols_controls <- c("black", "hispanic", "hs", "aa", "ba", "plus_ba")
 
-vars <- list(curr_types, last_types, dem_controls, curr_controls,
-             last_controls, ols_controls) %>% 
+vars_1 <- list(curr_types, last_types, dem_controls)
+vars_2 <- append(vars_1, list(curr_controls, last_controls))
+var_list <- list(vars_1, vars_2)
+
+for (sex in c(0, 1)) {
+  for (i in seq(1, 2)) {
+    
+    eq_fe <- create_formula("weeks_between_jobs_2", var_list[[i]])
+    
+    temp_fe <- lm_robust(
+      eq_fe, data = transition, subset = (female == sex), weights = weight,
+      fixed_effects = ~ year + region + marital_status + msa + case_id,
+      clusters = sample_id, se_type = "stata", try_cholesky = T)
+    
+    eq <- create_formula("weeks_between_jobs_2", 
+                            append(var_list[[i]], ols_controls))
+    
+    temp <- lm_robust(
+      eq, data = transition, subset = (female == sex), weights = weight,
+      fixed_effects = ~ year + region + marital_status + msa,
+      clusters = factor(sample_id), se_type = "stata", try_cholesky = T)
+    
+    
+  }
+}
+
+vars <- list(curr_types, last_types, dem_controls, ols_controls,
+             curr_controls, last_controls) %>% 
   map(str_c, collapse = "+") %>% 
   str_c(collapse = "+")
 
 eq <- formula(str_c("weeks_between_jobs_2", vars, sep = "~"))
 
-temp <- lm_robust(eq, data = transition, subset = (female == 0 & ever_out_occ_2),
+temp <- lm_robust(eq, data = transition, subset = (female == 0),
                   weights = weight,
                   fixed_effects = ~ year + region + marital_status + msa,
                   clusters = factor(sample_id),
