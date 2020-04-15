@@ -1907,6 +1907,7 @@ for (sex in c(0, 1)){
       ) %>% 
       mutate(resid = .[[var_g[i]]] - reg$fitted.values) %>% 
       filter(resid >= - 3 * sd(resid) & resid <= 3 * sd(resid),
+             resid != 0,
              outsourced == 1 | traditional == 1)
     
     print(str_c(sex_names[sex + 1], var_names[i]))
