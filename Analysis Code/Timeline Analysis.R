@@ -412,7 +412,6 @@ for (i in 1:length(vars_time)){
          height = height, width = width)
 }
 
-
 # For my own benefit, also plot number of observations each week
 temp <- timeline %>% 
   group_by(week) %>% 
@@ -774,41 +773,125 @@ write.table(table_c,
 
 
 # How do these correlations change with controls? Run regressions
-controls <- c("female_per", "black_per", "hispanic_per", "union_per",
-              "age", "age_2")
+controls <- c("outsourced_per", "female_per", "black_per", "hispanic_per",
+              "union_per", "age", "age_2")
 
 fixed_effects <- c("week", "occ")
+fe <- create_formula("", fixed_effects)
 
-outcomes <- c("log_real_wkly_wage", "tenure", "part_time", "hours worked",
+outcomes <- c("log_real_wkly_wage", "tenure", "part_time", "hours_week",
               "health", "retirement", "any_benefits")
 
-control_list <- list("outsourced_per", c("outsourced_per", controls))
+outcome_names <- c("Log Real Weekly Wage", "Weeks Tenure", "Part-Time Status",
+                   "Hours Worked", "Health Insurance", "Retirement Benefits",
+                   "Any Benefits")
 
-for (i in 1:length(outcomes)){
-  for (out in 0:1){
-    for (j in 1:2) {
-      
-      eq <- create_formula(str_c(outcomes[[i]], "_", out), control_list[[j]])
-      fe <- create_formula("", fixed_effects)
-      
-      temp <- lm_robust(eq, data = occ_timeline, 
-                        se_type = "stata", try_cholesky = T)
-      
-      temp_fe <- lm_robust(eq, data = occ_timeline, fixed_effects = !!fe,
-                           weight = workers,
-                           se_type = "stata", try_cholesky = T)
-      
-      
-      
+# Create a table with regression results, starting with workers_per
+top_or <- str_c(table_top, siunitx, "
+\\begin{tabular}{lSS}
+\\toprule
+Dependent Variable & {Outsourced Percent} & {Dependent Mean}   \\\\  \\midrule
+"
+)
+
+eq <- create_formula("workers_per", controls)
+
+temp <- lm_robust(eq, data = occ_timeline, fixed_effects = !!fe,
+                  weight = workers, clusters = occ,
+                  se_type = "stata", try_cholesky = T)
+
+t_mean <- weighted.mean(occ_timeline$workers_per, occ_timeline$workers) 
+
+center_or <- rbind(
+  cbind("Percent of Workers", 
+        format_val(temp$coefficients["outsourced_per"], 
+                   p_stars(temp$p.value["outsourced_per"]), r = 4, s = 4),
+        format_val(t_mean)
+        ),
+  cbind("in Occupation",
+        format_se(temp$std.error["outsourced_per"], r = 4, s = 4),
+        " & "
+  )
+  )
+
+for (out in 0:1){
+  for (i in 1:length(outcomes)){
+    
+    # Set heading for section
+    if (i == 1) {
+      if (out == 0) {
+        center_or %<>% rbind(
+          cbind("Non-Outsourced Jobs", " & ", " & " )
+        )
+      } else {
+        center_or %<>% rbind(
+          cbind("Outsourced Jobs", " & ", " & " )
+        )
+      }
     }
+      
+    outcome <- str_c(outcomes[i], "_", out)
+    eq <- create_formula(outcome, controls)
+    
+    temp <- lm_robust(eq, data = occ_timeline, fixed_effects = !!fe,
+                         weight = workers, clusters = occ,
+                         se_type = "stata", try_cholesky = T)
+      
+    t_mean <- weighted.mean(occ_timeline[[outcome]], occ_timeline$workers,
+                            na.rm = T) 
+    
+    center_or %<>% rbind(
+      cbind(outcome_names[i], 
+            format_val(temp$coefficients["outsourced_per"], 
+                       p_stars(temp$p.value["outsourced_per"]), r = 4, s = 4),
+            format_val(t_mean)
+      ),
+      cbind("",
+            format_se(temp$std.error["outsourced_per"], r = 4, s = 4),
+            " &"
+      )
+    )
   }
 }
 
-eq <- create_formula("workers_per", list("outsourced_per", controls))
-fe <- create_formula("", fixed_effects)
+center_or %<>% cbind(
+  rbind("\\\\", "\\\\[2pt] \\midrule", "\\\\[2pt]", "\\\\", "\\\\[2pt]", 
+        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
+        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt] \\midrule",
+        "\\\\[2pt]", "\\\\", "\\\\[2pt]", 
+        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
+        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]"
+        )
+)
 
+bot_or <- str_c(
+"\\bottomrule
+\\end{tabular}
+\\caption{Occupation level regressions of percent outsourced each week on
+average job characterisitcs. Each regession contains cotrols for percent 
+female, black, hispanic, and union, average age and age squared, and fixed effects
+at the occupation and week level. Outcomes include percent of jobs in the occupation
+and average job characteristics of non-outsourced and outsourced jobs.
+Regressions are weighted by number of observations and robust standard errors
+are clustered at the occupation level.  
+significant difference from 0 at the .10 level *, .05 level **, and .01 level ***.}
+\\label{occ_corr_reg}
+\\end{table}
+\\end{document}"
+  )
 
+# Do weird stuff to create LaTeX output
+t_folder <- str_c(table_folder, "Junk/")
+file_1 <- str_c(t_folder, "center_t.txt")
+write.table(center_or, file_1, quote=T, col.names=F, row.names=F)
+center_or <- read.table(file_1, sep = "")
+write.table(center_or, file_1, quote=F, col.names=F, row.names=F, sep = "")
+center_or <- readChar(file_1, nchars = 1e6)
 
+write.table(str_c(top_or, center_or, bot_or),
+            str_c(table_folder,
+                   "NLSY79 Occupation Info/NLSY79 Occupation Regressions.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
 
 # Individual's Percent Outsourcing ----------------------------------------
 
