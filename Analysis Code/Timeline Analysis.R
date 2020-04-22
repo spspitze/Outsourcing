@@ -193,7 +193,6 @@ table-align-text-post = false,
 group-digits          = false
 }"
 
-
 ##########################################################################
 # outsoucing occupations = occupations with >= 3.4% outsourcing (twice average)
 # Plot time series by Weeks, Months, Year, and Age
