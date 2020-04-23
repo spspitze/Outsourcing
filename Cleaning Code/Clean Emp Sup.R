@@ -10,8 +10,8 @@ library(tidyverse)
 raw_folder <- "../Raw Data/"
 clean_folder <- "../Cleaned Data/"
 
-new_data <- read_table2(str_c(raw_folder, "emp_sup_raw.dat")) %>% 
-  cols(.default = col_double())
+new_data <- read_table2(str_c(raw_folder, "emp_sup_raw.dat"), 
+                        col_types = cols(.default = col_double())) 
 
 names(new_data) <- c(
   "CASEID_1979",
