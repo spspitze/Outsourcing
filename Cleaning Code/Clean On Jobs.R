@@ -11,7 +11,9 @@ library(tidyverse)
 raw_folder <- "../Raw Data/"
 clean_folder <- "../Cleaned Data/"
 
-new_data <- read_table2(str_c(raw_folder, "on_jobs_raw.dat"))
+new_data <- read_table2(str_c(raw_folder, "on_jobs_raw.dat")) %>% 
+  cols(.default = col_double())
+
 names(new_data) <- c(
   "CASEID_1979",
   "Q6-8F.01.01_2002",
