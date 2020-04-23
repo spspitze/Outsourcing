@@ -2,6 +2,7 @@
 # It cleans it then saves it as emp_sup_clean
 rm(list = ls())
 
+library(magrittr)
 library(multiplex)
 library(tidyverse)
 
@@ -9,8 +10,9 @@ library(tidyverse)
 raw_folder <- "../Raw Data/"
 clean_folder <- "../Cleaned Data/"
 
+new_data <- read_table2(str_c(raw_folder, "emp_sup_raw.dat")) %>% 
+  cols(.default = col_double())
 
-new_data <- read_table2(str_c(raw_folder, "emp_sup_raw.dat"))
 names(new_data) <- c(
   "CASEID_1979",
   "QES-84D.01_2002",
@@ -554,7 +556,7 @@ check <- function(var, data){
 
 # Create a function to take a variable name and data set. Return the varibale if
 # filled. If NA, check if other"s in group that are not NA. If all are NA, return
-# NA, otherwise return mean (or mode below)
+# NA, otherwise return mean
 fill_NA_mean <- function(vector){
   return(
     ifelse(
@@ -564,18 +566,8 @@ fill_NA_mean <- function(vector){
     )
 }
 
-fill_NA_mode <- function(vector){
-  return(
-    ifelse(
-      !is.na(vector), vector,
-      ifelse(all(is.na(vector)), NA, Mode(vector, na.rm = T))
-      )
-    )
-}
 
-#************************************************************************************************************
-
-# Start cleaning data
+# Define Variables --------------------------------------------------------
 
 # Here is a list of variable names that will be useful later
 q_uid <- "JOB_UID_EMPROSTER"
@@ -583,56 +575,66 @@ q_ben <- "QES-84"
 q_sat <- "QES-89.0"
 
 ben_let <- c("E", "F", "G", "H", "I", "J", "K", "L", "M")
-ben_name <- c("health_", "life_", "dental_", "maternity_", "retirement_", "flex_sched_",
-         "profit_share_", "train_school_", "childcare_")
+ben_name <- c("health", "life", "dental", "maternity", "retirement", "flex_sched",
+         "profit_share", "train_school", "childcare")
 
 # Rename case_id
 new_data <- rename(new_data, case_id = CASEID_1979)
 
 # Loop over years and jobs (only look at first 5 jobs, that"s all we have data on)
 for (year in seq(2002, 2016, by=2)){
-  for (job in seq(1, 5, by=1)){
+  for (job in 1:5){
     
     # Get UID number
     if (check(str_c(q_uid, job, "_", year), new_data)){
-      new_data[[str_c("emp_id_", job, "_", year)]] <- 
-        new_data[[str_c(q_uid, job, "_", year)]]
+      new_data %<>% 
+        rename(!!str_c("emp_id_", job, "_", year) := !!str_c(q_uid, job, "_", year))
     }
     
     # For any benefits, keep only if == 0 (these respondents skiped the question below)
-    new_data[[str_c("any_benefits", job, "_", year)]] <- 
-      ifelse(new_data[[str_c(q_ben, "D.0", job, "_", year)]] == 0, 0, NA)
+    new_data %<>% 
+      mutate(!!str_c("any_benefits", job, "_", year) := 
+               ifelse(!!str_c(q_ben, "D.0", job, "_", year) == 0, 0, NA)
+      )
     
     # For benefits put as 0 if any_benefits 0
     # Naming is different in 2002-2004 (uses name)
-    for (ben in seq(1, 9, by = 1)){
+    for (ben in 1:9){
       if (year < 2005){
-        new_data[[str_c(ben_name[ben], job,"_", year)]] <- 
-          ifelse(
-            !is.na(new_data[[str_c("any_benefits", job, "_", year)]]), 0,
-            new_data[[str_c(q_ben, ben_let[ben], ".0", job, "_", year)]]
-            )
+        new_data %<>%
+          mutate(!!str_c(ben_name[ben], job, year, sep = "_") :=
+                   ifelse(
+                     !is.na(!!str_c("any_benefits", job, "_", year)), 0,
+                     !!str_c(q_ben, ben_let[ben], ".0", job, "_", year)
+                     )
+                 )
       }
       # In 2006-2106, use numbers instead
       else{
-        new_data[[str_c(ben_name[ben], job,"_", year)]] <- 
-          ifelse(
-            !is.na(new_data[[str_c("any_benefits", job, "_", year)]]), 0,
-            new_data[[str_c(q_ben, "E.0", job, "~00000", ben, "_", year)]]
-          )
+        new_data %<>% 
+          mutate(
+            !!str_c(ben_name[ben], job, year, sep = "_") := 
+              ifelse(
+                !is.na(!!str_c("any_benefits", job, "_", year)), 0,
+                !!str_c(q_ben, "E.0", job, "~00000", ben, "_", year)
+                )
+            )
       }
     }
     
     # Job satisfaction
     if (check(str_c(q_sat, job, "_", year), new_data)){
-      new_data[[str_c("job_sat_", job, "_", year)]] <- 
-        new_data[[str_c(q_sat, job, "_", year)]]
+      new_data %<>% 
+        rename(!!str_c("job_sat", job, year, sep = "_") := 
+                 !!str_c(q_sat, job, "_", year))
     }
   }
 }
 
+# Reshape and Clean  ------------------------------------------------------------
+
 # Create list of variables to loop over jobs
-vary <- append(ben_name, c("emp_id", "any_benefits", "job_sat"))
+vary <- c(ben_name, c("emp_id", "any_benefits", "job_sat"))
 
 constant <- "case_id"
 
@@ -646,32 +648,23 @@ long <- new_data %>%
   filter(!is.na(variable), !is.na(key)) %>%
   spread(key=variable, value=val) %>%
   mutate(key = substring(key, 2)) %>%
-  separate(key, sep="_", into=c("job", "year"), convert = T) %>% 
+  separate(key, sep="_", into=c("job", "int_year"), convert = T) %>% 
   # Keep only observations with at least one job specific bit of data
-  filter_at(vars(-case_id, -job, -year), any_vars(!is.na(.))) %>% 
-  # Calculate if recieved any (observed) benefits. 
-  # Also turn job and year into numeric
+  filter_at(vars(-case_id, -job, -int_year), any_vars(!is.na(.))) %>% 
+  filter(!is.na(emp_id)) 
+
+vars_fill <- c(ben_name, c("any_benefits", "job_sat"))
+
+long %<>% 
+  # Calculate if recieved any benefits. 
   mutate(
     any_benefits = pmax(health, life, dental, maternity, retirement, flex_sched,
                         profit_share, train_school, childcare, na.rm = T)
   ) %>% 
   # For missing data, If other job years have data, take averages
   group_by(case_id, emp_id) %>% 
-  mutate(
-    job_sat = fill_NA_mean(job_sat),
-    health = fill_NA_mean(health),
-    life = fill_NA_mean(life),
-    dental = fill_NA_mean(dental),
-    maternity = fill_NA_mean(maternity),
-    retirement = fill_NA_mean(retirement),
-    flex_sched = fill_NA_mean(flex_sched),
-    profit_share = fill_NA_mean(profit_share),
-    train_school = fill_NA_mean(train_school),
-    childcare = fill_NA_mean(childcare),
-    any_benefits = fill_NA_mean(any_benefits)
-  ) %>% 
-  ungroup() %>% 
-  filter(!is.na(emp_id))
+  mutate_at(vars_fill, fill_NA_mean) %>% 
+  ungroup() 
 
 # Save the data
 write_csv(long, str_c(clean_folder, "emp_sup_clean.csv"))
