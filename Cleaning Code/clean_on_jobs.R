@@ -1114,13 +1114,13 @@ check <- function(var, data){
 # Create a function that renames date variables.
 # It takes an old variable name, job number, year, and job type and 
 # returns a new name
-rename_nlsy <- 
+rename_oj <- 
   function(data, old_name, job_n, year, type, new_name,
            fill = "") {
     add <- 0 + 5 * (type == "p") + 10 * (type == "n")
     var <- str_c(old_name, job_n, fill, "_", year)
     num <- sprintf("%02d", job_n + add)
-    new_var <- str_c(new_name, "_", num, "_", year)
+    new_var <- str_c(new_name, num, year, sep = "_")
     if (check(var, data)) {
       data %<>% rename(!!new_var := !!var)
     } else {
@@ -1216,7 +1216,7 @@ for (job_n in 1:5) {
           date <- ym[date_n]
           new_name <- str_c(q_date_new[var_n], ym_new[date_n])
           new_data %<>% 
-            rename_nlsy(old_name, job_n, year, type, new_name,
+            rename_oj(old_name, job_n, year, type, new_name,
                         fill = date)
         }
       }
@@ -1237,7 +1237,7 @@ for (job_n in 1:5) {
           new_name <- str_c(q_type_new[var_n], "_", round_n)
           f <- str_c(".0", round_n)
           new_data %<>% 
-            rename_nlsy(old_name, job_n, year, type, new_name,
+            rename_oj(old_name, job_n, year, type, new_name,
                         fill = f)
         }
       }
@@ -1247,7 +1247,7 @@ for (job_n in 1:5) {
         old_name <- q_misc[[var_n]][type_n]
         type <- type_list[type_n]
         new_data %<>% 
-          rename_nlsy(old_name, job_n, year, type, q_misc_new[var_n],
+          rename_oj(old_name, job_n, year, type, q_misc_new[var_n],
                       fill = misc_fill[var_n])
       }
       
@@ -1268,7 +1268,7 @@ for (job_n in 1:5) {
     date <- ym[date_n]
     new_name <- str_c("month_start_job", ym_new[date_n])
     new_data %<>% 
-      rename_nlsy("Q6-15.0", job_n, 2002, "p", new_name, 
+      rename_oj("Q6-15.0", job_n, 2002, "p", new_name, 
                   fill = date)
   }
   
@@ -1277,13 +1277,13 @@ for (job_n in 1:5) {
     date <- ym[date_n]
     new_name <- str_c("month_start_job", ym_new[date_n])
     new_data %<>% 
-      rename_nlsy("NEWEMP_STARTDATE.0", job_n, 2012, "n", new_name,
+      rename_oj("NEWEMP_STARTDATE.0", job_n, 2012, "n", new_name,
                   fill = date)
   }
   
   # 2016: current_job d had a different name
   new_data %<>% 
-    rename_nlsy("Q6-8", job_n, 2016, "d", "current_job",
+    rename_oj("Q6-8", job_n, 2016, "d", "current_job",
                 fill = "")
 }
 
