@@ -24,13 +24,6 @@ new_data[new_data == -3] = NA  # Invalid missing
 new_data[new_data == -4] = NA  # Valid missing 
 new_data[new_data == -5] = NA  # Non-interview 
 
-# Get CPI from raw_folder
-cpi <- read_csv(str_c(raw_folder, "CPIAUCSL.csv"),
-                col_types = cols(
-                  DATE = col_date(format = ""),
-                  CPIAUCSL = col_double()
-                ))
-
 # Create a function that, given a variable name and data set, returns T
 # if variable is in names, F else
 check <- function(var, data){
@@ -124,7 +117,6 @@ for (job_n in 1:53){
   }
 }
 
-
 # Reshape and Clean Data --------------------------------------------------
 
 # Transform data from wide to long
@@ -170,14 +162,56 @@ long <- new_data %>%
     week_start_job = round_week(EMPLOYERS_ALL_STARTWEEK),
     week_end_job = round_week(EMPLOYERS_ALL_STOPWEEK)
   ) %>% 
+  # In hist_roster, jobs are reported retrospectively. To find real wages, I plan
+  # on using CPI from year last reported working that job that survey (job_year). 
+  # (If missing, use interview year).
+  
+  # If missing week_start/end_job, replace with 
+  # 1. month_start_end_job
+  # 2. Other week
+  # 3. Other month
+  # 4. First day of job_year
+  mutate(
+    # Create job_year
+    job_year = ifelse(!is.na(month_end_job), year(month_end_job), int_year),
+    # If job year before 1979, change to int_year (to match with cpi)
+    job_year = ifelse(job_year < 1979, int_year, job_year),
+    # Replace missing week_start/end_job
+    week_start_job = as_date(ifelse(
+      !is.na(week_start_job), week_start_job,
+      ifelse(!is.na(month_start_job), month_start_job,
+             ifelse(!is.na(week_end_job), week_end_job,
+                    ifelse(!is.na(month_end_job), month_end_job,
+                    make_date(int_year, 1, 1)
+                    )
+                    )
+             )
+      )),
+    week_end_job = as_date(ifelse(
+      !is.na(week_end_job), week_end_job,
+      ifelse(!is.na(month_end_job), month_end_job,
+             ifelse(!is.na(week_start_job), week_start_job,
+                    ifelse(!is.na(month_start_job), month_start_job,
+                    make_date(int_year, 1, 1))
+             )
+      )
+    ))
+    ) %>% 
   # Drop remaining EMPLOYER_ALL
   select(-starts_with("EMPLOYERS_ALL"))
 
 # Change Date to year, report cpi of each year and cpi_a as average cpi of last 
 # two years
+# Get CPI from raw_folder
+cpi <- read_csv(str_c(raw_folder, "CPIAUCSL.csv"),
+                col_types = cols(
+                  DATE = col_date(format = ""),
+                  CPIAUCSL = col_double()
+                ))
+
 cpi <- cpi %>% 
   rename(year = DATE, cpi = CPIAUCSL) %>% 
-  mutate(year = as.numeric(substring(year, 1, 4)))
+  mutate(year = year(year))
 
 # For now, use cpi from year 2016 as base
 base_cpi <- cpi$cpi[cpi$year == 2016]
@@ -188,12 +222,6 @@ fill_mode <- c("ind", "occ", "ind_cat", "occ_cat")
 
 # Do some cleaning of the emp_history_roster combined
 long %<>% 
-  # In NLSY, jobs are reported retrospectively. To find real wages, I plan
-  # on using CPI from year last reported working that job that survey.
-  # Create job_year and match CPI with it. 
-  mutate(job_year = year(month_end_job),
-         # If job year before 1979, change to 1979
-         job_year = ifelse(job_year < 1979, 1979, job_year)) %>% 
   # Join to cpi by year to get real wages
   left_join(cpi, by = c("job_year" = "year")) %>% 
   mutate(
@@ -253,11 +281,11 @@ long %<>%
   group_by(case_id, emp_id) %>% 
   mutate(
     year_rank = min_rank(int_year),
-    month_start_job = ifelse(year_rank == 1, month_start_job, NA),
-    month_end_job = ifelse(year_rank == max(year_rank), month_end_job, NA)
+    month_start_job = as_date(ifelse(year_rank == 1, month_start_job, NA)),
+    month_end_job = as_date(ifelse(year_rank == max(year_rank), month_end_job, NA))
   ) %>% 
   # Drop uneeded variables
-  select(-job, -hrly_wage, -wkly_wage, -cpi, -work_drop, -year_rank)
+  select(-job, -job_year, -hrly_wage, -wkly_wage, -cpi, -work_drop, -year_rank)
 
 # Save the data
 fwrite(long, str_c(clean_folder, "emp_hist_rost_clean.csv"), row.names = FALSE)

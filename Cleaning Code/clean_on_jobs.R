@@ -1210,7 +1210,7 @@ for (job_n in 1:5) {
       
       # Rename date variables
       for (date_n in 1:2) {
-        for (var_n in 1:length(q_date_new)) {
+        for (var_n in seq_along(q_date_new)) {
           old_name <- q_date[[var_n]][type_n]
           type <- type_list[type_n]
           date <- ym[date_n]
@@ -1223,7 +1223,7 @@ for (job_n in 1:5) {
       
       # Rename type varaibles
       for (round_n in 1:2) {
-        for (var_n in 1:length(q_type_new)) {
+        for (var_n in seq_along(q_type_new)) {
           AB <- ""
           if (var_n > 3){
             if (round_n == 1){
@@ -1243,7 +1243,7 @@ for (job_n in 1:5) {
       }
       
       # Rename miscelaneous varaibles
-      for (var_n in 1:length(q_misc_new)) {
+      for (var_n in seq_along(q_misc_new)) {
         old_name <- q_misc[[var_n]][type_n]
         type <- type_list[type_n]
         new_data %<>% 
@@ -1397,10 +1397,10 @@ long %<>%
   mutate(
     month_start_job = ymd(str_c(month_start_job_y, month_start_job_m, 1, sep="-")),
     month_end_job = ymd(str_c(month_end_job_y, month_end_job_m, 1, sep="-")),
-    month_start_job = ifelse(month_start_job < ymd("1970-01-01"), NA,
-                             month_start_job),
-    month_end_job = ifelse(month_end_job < ymd("1970-01-01"), NA,
-                           month_end_job)
+    month_start_job = as_date(ifelse(month_start_job < ymd("1970-01-01"), NA,
+                                     month_start_job)),
+    month_end_job = as_date(ifelse(month_end_job < ymd("1970-01-01"), NA,
+                                   month_end_job))
     ) %>% 
   select(-ends_with("_m"), -ends_with("_y"))
 
@@ -1443,7 +1443,8 @@ long %<>%
       ifelse(row_num > 1, rank + row_num - 1, rank)
     )
   ) %>% 
-  select(-most_job, -pre_trad, -num_types, -tot_current, -rank_date, -row_num)
+  select(-job, -most_job, -pre_trad, -num_types, -current_job,
+         -tot_current, -rank_date, -row_num)
 
 # Save the data
 write_csv(long, str_c(clean_folder, "on_jobs_clean.csv"))
