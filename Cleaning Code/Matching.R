@@ -1,6 +1,12 @@
 # This file takes emp_hist_rost_clean, emp_sum_clean, on_jobs_clean, demographics_clean,
-# timeline_clean, and weights and matches these data sets together
-# It saves the data in matched_clean and matched_timeline_clean
+# and weights and matches these data sets together (matched)
+# It then creates a dataset of all jobs by averaging job characteristics 
+# over each interview's observations (matched_jobs)
+# I then combine matched_jobs with timeline_clean to create a timeline of jobs
+# (timeline)
+# I use this timeline to see the prevalance of outsourcing for each
+# occupation and merge this information into the three datasets
+# It saves the data in matched, matched_jobs, and matched_timeline
 
 rm(list = ls())
 
@@ -291,13 +297,13 @@ matched <- filter(matched, !is.na(match_quality))
 # Jobs dropped from match because start/end dates don"t align
 flag_1_obs <- sum(matched$match_flag_1)
 
-matched <- filter(matched, match_flag_1 == F)
+matched %<>% filter(match_flag_1 == F)
 
 # Jobs dropped from match because no or conflicting job
 # type info
 flag_2_obs <- sum(matched$match_flag_2)
 
-matched <- matched %>% 
+matched %<>% 
   filter(match_flag_2 == F) %>%
   group_by(case_id) %>% 
   # How many ever_out are in matched dataset. How does this compare to On Jobs?
@@ -464,7 +470,11 @@ write.table(str_c(top_q, bot_q),
 
 # Remove uneeded data sets to free up memory
 rm("matches", "match_rhs", "on_jobs_miss", "ever_out_count", "match_list",
-   "on_jobs", "ehr_es", "demographics", "weights", "emp_sup", "hist_rost")
+   "on_jobs", "ehr_es", "demographics", "weights", "emp_sup", "hist_rost", 
+   "si", "om", "p_m", "top", "bot", "oj_info", "oj_info_missed", "oj_missed",
+   "oj_obs", "m_q_table", "mean_vars", "min_vars", "max_vars", "mode_vars", 
+   "obs", "match_base", "looped_mq_table", "labels", "end", "fill_mean",
+   "bot_oj", "bot_q")
 
 # Create Matched Jobs -----------------------------------------------------
 
@@ -505,15 +515,13 @@ matched_jobs <- list(.vars = lst(mean_vars, mode_vars, min_vars, max_vars),
 
 # Drop uneeded variables
 matched <- matched %>% 
-  select(-month_start_job, month_end_job, -job, -job_oj, -month_start_job_oj,
+  select(-month_start_job, -month_end_job, -job, -job_oj, -month_start_job_oj,
          -month_end_job_oj, -looped, -match_flag_1, -match_flag_2,
          -count, -looped)
 
-
-
 # Merge Timeline With Job Info --------------------------------------------
 
-# Merge job info from matched_jobs using start and end weeks
+# Merge job info from hist_rost using start and end weeks
 # Because merging based on a condition, easier to use data.table
 
 # Timeline data (make sure week is a date)
@@ -523,18 +531,20 @@ timeline <- fread(str_c(clean_folder, "timeline_clean.csv"),
                     Date = c("week")
                   ))
 
-matched_jobs <- data.table(matched_jobs)
+matched_jobs %<>% data.table()
+
 
 # For space reasons, only match males
 # Create week match so week stays in dataset
 timeline <- timeline[female == 0, ]
 timeline <- timeline[, `:=`(week_match = week, female = NULL)]
 
-timeline <- matched_jobs[timeline, 
-                     on = .(case_id == case_id, 
-                            week_start_job <= week_match,
-                            week_end_job >= week_match), 
-                     allow.cartesian = T]
+timeline <- matched_jobs[timeline,
+                      on = .(case_id == case_id, 
+                             week_start_job <= week_match,
+                             week_end_job >= week_match), 
+                      allow.cartesian = T]
+
 
 # Drop jobs held in same week. Keep jobs by largest/most
 # 1. hours_week
@@ -554,9 +564,12 @@ timeline <-
   timeline[, max := min(emp_id, na.rm = T), by = .(case_id, week)]
 timeline <- timeline[(emp_id == max) %in% T | is.na(emp_id)]
 
-# Check how many observations each week
-timeline <- timeline[, count := .N, by = .(case_id, week)]
-temp <- timeline[count > 1]
+# # Check how many observations each week
+# timeline <- timeline[, count := .N, by = .(case_id, week)]
+# temp <- timeline[count > 1]
+
+# Drop uneeded variables
+timeline <- timeline[, `:=`(max = NULL, count = NULL, non_na = NULL)]
 
 
 # Plot Timeline -----------------------------------------------------------
@@ -609,7 +622,7 @@ outsourcing_occ <- timeline %>%
             outsourced_week_obs = unweighted(sum(outsourced))) %>% 
   # Define high outsourcing occupation (ho_occ) if 2* average outsourcing
   mutate(
-    ho_occ = outsourced_per >= 2 * outsourcing_prevalence$outsourced_per
+    ho_occ = 1 * (outsourced_per >= 2 * outsourcing_prevalence$outsourced_per)
   )
 
 # Do similar things (but not as much) for industry
@@ -665,9 +678,41 @@ write.table(table,
             str_c(table_folder, "NLSY79 Occupation Info/Occupation Outsourcing.tex"),
             quote=F, col.names=F, row.names=F, sep="")
 
-# # Save the data
-# write_csv(matched, str_c(clean_folder, "matched_clean.csv"))
-# 
-# # Save the data
-# write_csv(matched_jobs, str_c(clean_folder, "matched_jobs_clean.csv"))
 
+# Match Occupation Outsourcing Info ---------------------------------------
+
+# Integrate occupation data into main datasets
+matched %<>% data.table()
+
+outsourcing_occ %<>% 
+  select(occ, outsourced_per, ho_occ, outsourced_wage_above_per) %>% 
+  data.table()
+
+setkey(matched, occ)
+setkey(matched_jobs, occ)
+setkey(timeline, occ)
+setkey(outsourcing_occ, occ)
+
+matched <- merge(matched, outsourcing_occ, all.x = T)
+
+matched[order(case_id, int_year, emp_id), 
+        ever_ho_occ := any(ho_occ %in% T), by = .(case_id)] %>% 
+  setcolorder(c("case_id", "int_year", "emp_id", "hours_week")) 
+
+matched_jobs <- merge(matched_jobs, outsourcing_occ, all.x = T)
+
+matched_jobs[order(case_id, emp_id),
+             ever_ho_occ := any(ho_occ %in% T), by = .(case_id)] %>% 
+  setcolorder(c("case_id", "emp_id", "hours_week")) 
+
+timeline <- merge(timeline, outsourcing_occ, all.x = T)
+timeline[order(case_id, week),
+         ever_ho_occ := any(ho_occ %in% T), by = .(case_id)] %>% 
+  setcolorder(c("case_id", "week", "emp_id", "working", "unemployed",
+                "hours_week")) 
+
+
+# Save datasets
+fwrite(matched, str_c(clean_folder, "matched.csv"), row.names = FALSE)
+fwrite(matched_jobs, str_c(clean_folder, "matched_jobs.csv"), row.names = FALSE)
+fwrite(timeline, str_c(clean_folder, "matched_timeline.csv"), row.names = FALSE)

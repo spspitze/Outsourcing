@@ -1311,7 +1311,6 @@ long <- new_data %>%
   # Keep only observations with at least one job specific bit of data
   filter_at(vars(-case_id, -job, -int_year, -most_job), any_vars(!is.na(.))) 
 
-
 # Fill in missing job type data
 # 1. For job types, 1 vs 2 are first and second time though the loop.
 # set type = 2 if available, 1 otherwise

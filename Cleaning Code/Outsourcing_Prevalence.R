@@ -107,6 +107,7 @@ write.table(table,
 # and timeline
 matched <- fread(str_c(clean_folder, "matched_clean.csv"))
 matched_jobs <- fread(str_c(clean_folder, "matched_jobs_clean.csv"))
+
 outsourcing_occ <- outsourcing_occ %>% 
   select(occ, outsourced_per, outsourcing_occ, outsourced_wage_above_per) %>% 
   data.table()
@@ -129,7 +130,6 @@ matched_jobs[order(case_id, emp_id), ever_out_occ := any(outsourcing_occ %in% T)
   setcolorder(c("case_id", "emp_id", "hours_week")) 
 
 timeline <- merge(timeline, outsourcing_occ, all.x = T)
-
 timeline[order(case_id, week), ever_out_occ := any(outsourcing_occ %in% T),
   by = "case_id"] %>% 
   setcolorder(c("case_id", "week", "unemployed", "unemployed_duration", "previous_job_2",

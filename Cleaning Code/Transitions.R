@@ -1,7 +1,7 @@
-# This file takes cleaned data from timeline and creates transition
+# This file takes cleaned data from matched_timeline and creates transition
 # data between current job and previous job
 
-# Save data as transition_clean
+# Save data as matched_transition
 
 rm(list = ls())
 
@@ -13,20 +13,49 @@ library(data.table)
 # Folders of interest
 clean_folder <- "../Cleaned Data/"
 
-timeline <- fread(str_c(clean_folder, "timeline_clean_occ.csv"))
+timeline <- fread(str_c(clean_folder, "matched_timeline.csv"))
 
-# First look at each job's last observation in the data
-job_final_week <- timeline %>% 
-  group_by(case_id, emp_id) %>% 
-  filter(week == max(week), !is.na(emp_id)) %>% 
-  select(case_id, hours_week:ind, tenure:union, log_real_hrly_wage:tenure_4,
-         union_, childcare:any_benefits, indep_con:traditional)
+# First look at each job's first and last observation in the data
+# Order obervations by date
+first_last <- timeline[!is.na(emp_id)][,`:=`(first = 1 * (week == min(week)),
+                                             last = 1 * (week == max(week))),
+                                       by = .(case_id, emp_id)]
 
-transition <- timeline %>% 
-  filter(!is.na(weeks_between_jobs_2))
+first_last <- first_last[first == 1 | last == 1][order(week)]
 
-transition <- inner_join(transition, job_final_week,
-                        by = c("case_id", "previous_job_2" = "emp_id"),
-                        suffix = c("_curr", "_last")) 
+# Look at job leads and lags. Look at lags for first and leads for last
+first_last[, c("emp_id_next", "emp_id_prev") := shift(.SD, c(-1,1)), 
+           by = case_id, .SDcols = "emp_id"]
 
-write_csv(transition, str_c(clean_folder, "transition_clean.csv"))
+first_last[, `:=`(emp_id_prev = first * emp_id_prev, emp_id_next = last * emp_id_next)]
+
+# Combine each row of first last
+match <- first_last[, .(emp_id_prev = max(emp_id_prev, na.rm = T),
+                        emp_id_next = max(emp_id_next, na.rm = T)),
+                    by = .(case_id, emp_id)]
+
+transition <- first_last[first == 1][, c(
+  "week", "working", "unemployed", "first", "last", "emp_id_next", "emp_id_prev"):=NULL]
+
+setkey(match, case_id, emp_id)
+setkey(transition, case_id, emp_id)
+
+transition %<>% merge(match, all.x = T)
+
+# Create a copy of transition with data about previous/next job that needs 
+# to be known.
+transition_temp <- first_last[first == 1][, c(
+  "week", "working", "unemployed", "sample_id", "female", "black", "hispanic", "weight",
+  "ever_out_m", "ever_out_oj", "ever_ho_occ", "emp_id_next", "emp_id_prev"):=NULL]
+
+# Merge previous jobs (Use tidyverse because data.table setkey acting weird)
+transition %<>% 
+  left_join(transition_temp,
+             by = c("case_id", "emp_id_prev" = "emp_id"),
+             suffix = c("_curr", "_prev")) %>% 
+  left_join(transition_temp,
+             by = c("case_id", "emp_id_next" = "emp_id"),
+             suffix = c("_curr", "_next"))
+  
+# Save the data
+write_csv(transition, str_c(clean_folder, "matched_transition.csv"))
