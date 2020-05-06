@@ -581,9 +581,9 @@ ben_name <- c("health", "life", "dental", "maternity", "retirement", "flex_sched
 # Rename case_id
 new_data <- rename(new_data, case_id = CASEID_1979)
 
-# Loop over years and jobs (only look at first 5 jobs, that"s all we have data on)
-for (year in seq(2002, 2016, by=2)){
-  for (job in 1:5){
+# Loop over years and jobs (only look at first 5 jobs, that's all we have data on)
+for (job in 1:5){
+  for (year in seq(2002, 2016, by=2)){
     
     # Get UID number
     if (check(str_c(q_uid, job, "_", year), new_data)){
@@ -593,40 +593,40 @@ for (year in seq(2002, 2016, by=2)){
     
     # For any benefits, keep only if == 0 (these respondents skiped the question below)
     new_data %<>% 
-      mutate(!!str_c("any_benefits", job, "_", year) := 
-               ifelse(!!str_c(q_ben, "D.0", job, "_", year) == 0, 0, NA)
+      mutate(!!str_c("any_benefits", job, year, sep = "_") := 
+               ifelse(.[[str_c(q_ben, "D.0", job, "_", year)]] == 0, 0, NA)
       )
-    
-    # For benefits put as 0 if any_benefits 0
-    # Naming is different in 2002-2004 (uses name)
-    for (ben in 1:9){
-      if (year < 2005){
-        new_data %<>%
-          mutate(!!str_c(ben_name[ben], job, year, sep = "_") :=
-                   ifelse(
-                     !is.na(!!str_c("any_benefits", job, "_", year)), 0,
-                     !!str_c(q_ben, ben_let[ben], ".0", job, "_", year)
-                     )
-                 )
-      }
-      # In 2006-2106, use numbers instead
-      else{
-        new_data %<>% 
-          mutate(
-            !!str_c(ben_name[ben], job, year, sep = "_") := 
-              ifelse(
-                !is.na(!!str_c("any_benefits", job, "_", year)), 0,
-                !!str_c(q_ben, "E.0", job, "~00000", ben, "_", year)
-                )
-            )
-      }
-    }
     
     # Job satisfaction
     if (check(str_c(q_sat, job, "_", year), new_data)){
       new_data %<>% 
         rename(!!str_c("job_sat", job, year, sep = "_") := 
                  !!str_c(q_sat, job, "_", year))
+    }
+  }
+    
+  # For benefits put as 0 if any_benefits == 0
+  # Naming is different in 2002-2004 (uses name)
+  for (ben in 1:9){
+    for (year in c(2002, 2004)) {
+      new_data %<>%
+        mutate(!!str_c(ben_name[ben], job, year, sep = "_") :=
+                 ifelse(
+                   !is.na(.[[str_c("any_benefits", job, year, sep = "_")]]), 0,
+                   .[[str_c(q_ben, ben_let[ben], ".0", job, "_", year)]]
+                   )
+               )
+    }
+    # In 2006-2016, use numbers instead
+    for (year in seq(2006, 2016, by = 2)) {
+      new_data %<>% 
+        mutate(
+          !!str_c(ben_name[ben], job, year, sep = "_") := 
+            ifelse(
+              !is.na(.[[str_c("any_benefits", job, year, sep = "_")]]), 0,
+              .[[str_c(q_ben, "E.0", job, "~00000", ben, "_", year)]]
+              )
+          )
     }
   }
 }
