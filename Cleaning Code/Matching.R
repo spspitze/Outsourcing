@@ -468,15 +468,10 @@ write.table(str_c(top_q, bot_q),
             quote=F, col.names=F, row.names=F, sep="")
 
 
-# Remove uneeded data sets to free up memory
-rm("matches", "match_rhs", "on_jobs_miss", "ever_out_count", "match_list",
-   "on_jobs", "ehr_es", "demographics", "weights", "emp_sup", "hist_rost", 
-   "si", "om", "p_m", "top", "bot", "oj_info", "oj_info_missed", "oj_missed",
-   "oj_obs", "m_q_table", "mean_vars", "min_vars", "max_vars", "mode_vars", 
-   "obs", "match_base", "looped_mq_table", "labels", "end", "fill_mean",
-   "bot_oj", "bot_q")
-
 # Create Matched Jobs -----------------------------------------------------
+
+# Create max_tenure in matched jobs for timeline below
+matched %<>% mutate(max_tenure = tenure)
 
 # Variables to use mean, mode, max, and min 
 mean_vars <- c("hours_week", "tenure", "union", "union_fill", "log_real_hrly_wage",
@@ -492,7 +487,7 @@ mode_vars <- c("ind", "occ", "ind_cat", "occ_cat", "marital_status", "msa", "reg
 
 min_vars <- c("week_start_job")
 
-max_vars <- c("week_end_job")
+max_vars <- c("week_end_job", "max_tenure")
 
 # Create mean, min, and max functions without na
 mean_na <- function(vector) mean(vector, na.rm = T)
@@ -517,7 +512,14 @@ matched_jobs <- list(.vars = lst(mean_vars, mode_vars, min_vars, max_vars),
 matched <- matched %>% 
   select(-month_start_job, -month_end_job, -job, -job_oj, -month_start_job_oj,
          -month_end_job_oj, -looped, -match_flag_1, -match_flag_2,
-         -count, -looped)
+         -count, -looped, -max_tenure)
+
+# Remove uneeded data sets to free up memory
+rm("matches", "match_rhs", "on_jobs_miss", "ever_out_count", "match_list",
+   "on_jobs", "ehr_es", "demographics", "emp_sup", "hist_rost", 
+   "si", "om", "p_m", "top", "bot", "oj_info", "oj_info_missed", "oj_missed",
+   "oj_obs", "m_q_table", "obs", "match_base", "labels", "end", "fill_mean",
+   "bot_oj", "bot_q", "mean_var", "mode_vars", "max_vars", "min_vars")
 
 # Merge Timeline With Job Info --------------------------------------------
 
@@ -531,8 +533,11 @@ timeline <- fread(str_c(clean_folder, "timeline_clean.csv"),
                     Date = c("week")
                   ))
 
-matched_jobs %<>% data.table()
-
+# Create week_start/end_match to keep original data (don't match weights now)
+matched_jobs %<>% 
+  mutate(week_start_match = week_start_job,
+         week_end_match = week_end_job) %>% 
+  data.table()
 
 # For space reasons, only match males
 # Create week match so week stays in dataset
@@ -541,10 +546,9 @@ timeline <- timeline[, `:=`(week_match = week, female = NULL)]
 
 timeline <- matched_jobs[timeline,
                       on = .(case_id == case_id, 
-                             week_start_job <= week_match,
-                             week_end_job >= week_match), 
+                             week_start_match <= week_match,
+                             week_end_match >= week_match), 
                       allow.cartesian = T]
-
 
 # Drop jobs held in same week. Keep jobs by largest/most
 # 1. hours_week
@@ -568,9 +572,60 @@ timeline <- timeline[(emp_id == max) %in% T | is.na(emp_id)]
 # timeline <- timeline[, count := .N, by = .(case_id, week)]
 # temp <- timeline[count > 1]
 
-# Drop uneeded variables
-timeline <- timeline[, `:=`(max = NULL, count = NULL, non_na = NULL)]
+# Create w_tenure in timeline to tack tenure week by week
+# Try to account for fact that some jobs have already started with 
+# tenure by using max_tenure
+timeline <- timeline[
+  !is.na(emp_id),
+  w_tenure := max_tenure + time_length(week - week_end_job, unit = "week")
+  ]
+# If negative, assume weeks are correct
+timeline <- timeline[
+  w_tenure < 0, w_tenure := time_length(week - week_start_job, unit = "week")
+  ]
+# Set jobs "started" before 1979 to w_tenure = NA
+timeline <- timeline[week_start_job < ymd("1979-01-01"), w_tenure := NA]
 
+# Count working spells that aren't matched (NA == 0). Set these emp_ids
+# to their number, ie 1, 2, ... . Also mark start and end week
+timeline <- timeline[order(week)]
+timeline <- timeline[,c("working_next", "working_prev") := shift(.SD, c(-1,1)), 
+                     by = case_id, .SDcols = "working"]
+timeline <- timeline[,c("emp_id_next", "emp_id_prev") := shift(.SD, c(-1,1)), 
+                     by = case_id, .SDcols = "emp_id"]
+
+# Mark start/end as week if prev/next working is 0 or NA or if emp_id prev/next exists
+timeline <- timeline[
+  (is.na(emp_id) & working == 1 
+   & (working_prev == 0 | is.na(working_prev) | !is.na(emp_id_prev))),
+  week_start_job := week]
+
+timeline <- timeline[
+  (is.na(emp_id) & working == 1 
+   & (working_next == 0 | is.na(working_next) | !is.na(emp_id_next))),
+  week_end_job := week]
+
+# Set the emp_id of these jobs as the rank of their start date
+# First set emp_id of Week_start_job then fill in rest
+timeline <- timeline[is.na(emp_id) & !is.na(week_start_job),
+                     emp_id := rank(week_start_job), by = case_id]
+
+timeline <- timeline[working == 1 & (is.na(emp_id) | emp_id < 1000),
+                       emp_id := nafill(emp_id, type = "locf"),
+                       by = case_id]
+
+# Drop uneeded variables. Re-match weights so non-matched have weights too
+timeline <- timeline[, c(
+  "max", "count", "non_na", "week_start_match", "week_end_match", "weight",
+  "max_tenure", "working_next", "working_prev", "emp_id_next", "emp_id_prev") := NULL]
+
+matched_jobs <- matched_jobs[, c("max_tenure",
+                                 "week_start_match",
+                                 "week_end_match") := NULL]
+
+weights %<>% data.table()
+
+timeline <- weights[timeline, on = .(case_id == case_id)]
 
 # Plot Timeline -----------------------------------------------------------
 
@@ -696,21 +751,20 @@ setkey(outsourcing_occ, occ)
 matched <- merge(matched, outsourcing_occ, all.x = T)
 
 matched[order(case_id, int_year, emp_id), 
-        ever_ho_occ := any(ho_occ %in% T), by = .(case_id)] %>% 
+        ever_ho_occ := 1 * any(ho_occ %in% T), by = .(case_id)] %>% 
   setcolorder(c("case_id", "int_year", "emp_id", "hours_week")) 
 
 matched_jobs <- merge(matched_jobs, outsourcing_occ, all.x = T)
 
 matched_jobs[order(case_id, emp_id),
-             ever_ho_occ := any(ho_occ %in% T), by = .(case_id)] %>% 
+             ever_ho_occ := 1 * any(ho_occ %in% T), by = .(case_id)] %>% 
   setcolorder(c("case_id", "emp_id", "hours_week")) 
 
 timeline <- merge(timeline, outsourcing_occ, all.x = T)
 timeline[order(case_id, week),
-         ever_ho_occ := any(ho_occ %in% T), by = .(case_id)] %>% 
+         ever_ho_occ := 1 * any(ho_occ %in% T), by = .(case_id)] %>% 
   setcolorder(c("case_id", "week", "emp_id", "working", "unemployed",
                 "hours_week")) 
-
 
 # Save datasets
 fwrite(matched, str_c(clean_folder, "matched.csv"), row.names = FALSE)
