@@ -130,12 +130,12 @@ create_formula <- function(y, x_list) {
 
 # Create a function to properly format inputs
 format_it <- function(var, r = 2, s = 2) {
-  format(round(var, r), nsmall = s)
+  format(round(var, r), nsmall = s, scientific = F)
 }
 
 # Create a function to put values in tables
 format_val <- function(var, star = "", r = 2, s = 2) {
-  str_c(" & ", format_it(var, r, s), star)
+  str_c(" & ", format_it(var, r, s), star, " ")
 }
 
 # Create a function to put standard errors in tables
@@ -145,7 +145,12 @@ format_se <- function(var, r = 2, s = 2) {
 
 # Create a function to put N obs in tables
 format_n <- function(n) {
-  str_c(" & {", format(n, big.mark = ",", trim = T), "}")
+  str_c(" & {", format(n, big.mark = ",", trim = T), "} ")
+}
+
+# Create a function to format percents
+format_per <- function(var, r = 2, s = 2) {
+  str_c(" & ", format(round(var * 100, r), nsmall = s), " ")
 }
 
 # Create a function to sum rows of a variable, droppin NAs
@@ -165,6 +170,12 @@ lm_residuals <- function(model) {
 # (drops single FE)
 lm_N <- function(model) {
   length(lm_residuals(model))
+}
+
+# I often want to run code on whole sample and on ever_ho_occ. 
+# Pair these dfs in a list
+split_data <- function(df) {
+  list(df, filter(df, ever_ho_occ == 1))
 }
 
 # Define our default table top
@@ -255,7 +266,7 @@ for (i in seq_along(vars_time)) {
     scale(i) +
     theme_light(base_size = 16) 
   
-  ggsave(str_c(figure_folder, "HO Occ ", vars_save[i], ".pdf"),
+  ggsave(str_c(figure_folder, "HO Occupation ", vars_save[i], ".pdf"),
          height = height, width = width)
   
   # 3. Percent of workers in HO occupations  who are outsourced 
@@ -355,7 +366,7 @@ for (i in seq_along(vars_time)) {
   # 7. Number of workers not working based on ever HO occupations 
   temp <- timeline %>% 
     filter(!is.na(.[[vars_time[i]]])) %>% 
-    as_survey_design(ids = case_id, weights=weight) %>% 
+    as_survey_design(ids = case_id, weights = weight) %>% 
     # Code is not allowing me to group by both at once for some reason
     group_by_at(vars_time[i]) %>% 
     group_by(ever_ho_occ, add = T) %>% 
@@ -677,7 +688,7 @@ outcome_names <- c("Log Real Weekly Wage", "Weeks Tenure", "Part-Time Status",
                    "Any Benefits")
 
 # Create a table with regression results, starting with workers_per
-top_or <- str_c(table_top, siunitx, 
+top <- str_c(table_top, siunitx, 
 "
 \\begin{tabular}{lSS}
 \\toprule
@@ -693,7 +704,7 @@ temp <- lm_robust(eq, data = occ_timeline, fixed_effects = !!fe,
 
 t_mean <- weighted.mean(occ_timeline$workers_per, occ_timeline$workers) 
 
-center_or <- rbind(
+center <- rbind(
   cbind("Percent of Workers", 
         format_val(temp$coefficients["outsourced_per"], 
                    p_stars(temp$p.value["outsourced_per"]), r = 4, s = 4),
@@ -711,11 +722,11 @@ for (out in 0:1){
     # Set heading for section
     if (i == 1) {
       if (out == 0) {
-        center_or %<>% rbind(
+        center %<>% rbind(
           cbind("Non-Outsourced Jobs", " & ", " & " )
         )
       } else {
-        center_or %<>% rbind(
+        center %<>% rbind(
           cbind("Outsourced Jobs", " & ", " & " )
         )
       }
@@ -731,7 +742,7 @@ for (out in 0:1){
     t_mean <- weighted.mean(occ_timeline[[outcome]], occ_timeline$workers,
                             na.rm = T) 
     
-    center_or %<>% rbind(
+    center %<>% rbind(
       cbind(outcome_names[i], 
             format_val(temp$coefficients["outsourced_per"], 
                        p_stars(temp$p.value["outsourced_per"]), r = 4, s = 4),
@@ -745,7 +756,7 @@ for (out in 0:1){
   }
 }
 
-center_or %<>% cbind(
+center %<>% cbind(
   rbind("\\\\", "\\\\[2pt] \\midrule", "\\\\[2pt]", "\\\\", "\\\\[2pt]", 
         "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
         "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt] \\midrule",
@@ -755,7 +766,7 @@ center_or %<>% cbind(
         )
 )
 
-bot_or <- str_c(
+bot <- str_c(
 "\\bottomrule
 \\end{tabular}
 \\caption{Occupation level regressions of percent outsourced each week on
@@ -764,7 +775,7 @@ Black, Hispanic, and union member, average age and age squared, and fixed effect
 at the occupation and week level. Outcomes include percent of jobs in the occupation
 and average job characteristics of non-outsourced and outsourced jobs.
 Regressions are weighted by number of observations and robust standard errors
-are clustered at the occupation level. 
+are clustered at the occupation level. Stars represent
 significant difference from 0 at the .10 level *, .05 level **, and .01 level ***.}
 \\label{occ_corr_reg}
 \\end{table}
@@ -773,13 +784,13 @@ significant difference from 0 at the .10 level *, .05 level **, and .01 level **
 
 # Do weird stuff to create LaTeX output
 t_folder <- str_c(table_folder, "Junk/")
-file_1 <- str_c(t_folder, "center_t.txt")
-write.table(center_or, file_1, quote=T, col.names=F, row.names=F)
-center_or <- read.table(file_1, sep = "")
-write.table(center_or, file_1, quote=F, col.names=F, row.names=F, sep = "")
-center_or <- readChar(file_1, nchars = 1e6)
+file_1 <- str_c(t_folder, "center.txt")
+write.table(center, file_1, quote=T, col.names=F, row.names=F)
+center <- read.table(file_1, sep = "")
+write.table(center, file_1, quote=F, col.names=F, row.names=F, sep = "")
+center <- readChar(file_1, nchars = 1e6)
 
-write.table(str_c(top_or, center_or, bot_or),
+write.table(str_c(top, center, bot),
             str_c(table_folder,
                    "NLSY79 Occupation Info/Occupation Regressions.tex"),
             quote=F, col.names=F, row.names=F, sep="")
@@ -797,7 +808,6 @@ outsourcing_per <- timeline %>%
     ever_ho_occ = mean(ever_ho_occ),
     weight = mean(weight)
   ) %>% 
-  filter(outsourcing_per > 0) %>% 
   ungroup() %>% 
   mutate(weight = weight / sum(weight))
 
@@ -824,74 +834,53 @@ ggsave(str_c(figure_folder, "Percent Weeks Worked Outsourced.pdf"),
 
 # Look at highest tenure of each job for outsourced vs not overall and in 
 # outsourcing occupations
-tenure_summary <- timeline %>% 
-  filter(!is.na(tenure)) %>% 
-  group_by(case_id, emp_id) %>% 
-  filter(tenure == max(w_tenure)) %>%
-  as_survey_design(ids = case_id, weights=weight) %>%
-  group_by(outsourced) %>% 
-  summarise(tenure_mean = survey_mean(tenure, vartype = "ci"),
-            tenure_median = survey_median(tenure)) %>% 
-  arrange(desc(outsourced))
+tenure_summary <- split_data(timeline)
 
-tenure_summary_ho <- timeline %>% 
-  filter(!is.na(tenure), ho_occ) %>% 
-  group_by(case_id, emp_id) %>% 
-  filter(tenure == max(w_tenure)) %>%
-  as_survey_design(ids = case_id, weights=weight) %>%
-  group_by(outsourced) %>% 
-  summarise(tenure_mean = survey_mean(tenure, vartype = "ci"),
-            tenure_median = survey_median(tenure)) %>% 
-  arrange(desc(outsourced))
+for (i in 1:2) {
+  tenure_summary[[i]] %<>% 
+    filter(!is.na(tenure)) %>% 
+    group_by(case_id, emp_id) %>% 
+    filter(tenure == max(w_tenure)) %>%
+    as_survey_design(ids = case_id, weights=weight) %>%
+    group_by(outsourced) %>% 
+    summarise(tenure_mean = survey_mean(tenure, vartype = "ci"),
+              tenure_median = survey_median(tenure)) %>% 
+    arrange(desc(outsourced))
+}
+
+save_ho <- c("", " HO Ocupations")
+time_plot <- split_data(timeline)  
+
+# Plot Max Tenure
+for (ho in 1:2) {
+  temp <- time_plot[[ho]] %>%
+    filter(!is.na(tenure)) %>%
+    group_by(case_id, emp_id) %>% 
+    filter(tenure == max(tenure)) %>%
+    ggplot() +
+    geom_density(aes(tenure, fill = factor(outsourced)), alpha = 0.2) +
+    geom_vline(aes(xintercept = tenure_summary[[i]]$tenure_mean[1]),
+               color = "red", size=1) +
+    geom_vline(aes(xintercept = tenure_summary[[i]]$tenure_mean[2]),
+               color = "blue", size=1) +
+    labs(x = "Max Weeks Tenure", y = "Density") +
+    scale_fill_manual(name = "Outsourced", breaks = c(0, 1),
+                      values = c("blue", "red"),
+                      labels = c("Not Outsourced", "Outsourced")) +
+    scale_y_continuous(expand = expand_scale(mult = c(0, 0.05))) +
+    theme_light(base_size = 16)
   
-# Plot Max Tenure for all occupations
-temp <- timeline %>%
-  filter(!is.na(tenure)) %>%
-  group_by(case_id, emp_id) %>% 
-  filter(tenure == max(tenure)) %>%
-  ggplot() +
-  geom_density(aes(tenure, fill = factor(outsourced)), alpha = 0.2) +
-  geom_vline(aes(xintercept = tenure_summary$tenure_mean[1]),
-             color = "red", size=1) +
-  geom_vline(aes(xintercept = tenure_summary$tenure_mean[2]),
-             color = "blue", size=1) +
-  labs(x = "Max Weeks Tenure", y = "Density") +
-  scale_fill_manual(name = "Outsourced", breaks = c(0, 1),
-                    values = c("blue", "red"),
-                    labels = c("Not Outsourced", "Outsourced")) +
-  scale_y_continuous(expand = expand_scale(mult = c(0, 0.05))) +
-  theme_light(base_size = 16)
+  ggsave(str_c(figure_folder, "Max Tenure", save_ho[ho], ".pdf"),
+         height = height, width = width)
+}
 
-ggsave(str_c(figure_folder, "Max Tenure.pdf"),
-       height = height, width = width)
-
-# Just workers in outsourcing occupations
-temp <- timeline %>%
-  filter(!is.na(tenure), ho_occ) %>%
-  group_by(case_id, emp_id) %>% 
-  filter(tenure == max(tenure)) %>%
-  ggplot() +
-  geom_density(aes(tenure, fill = factor(outsourced)), alpha = 0.2) +
-  geom_vline(aes(xintercept = tenure_summary_ho$tenure_mean[1]),
-             color = "red", size=1) +
-  geom_vline(aes(xintercept = tenure_summary_ho$tenure_mean[2]),
-             color = "blue", size=1) +
-  labs(x = "Max Weeks Tenure", y = "Density") +
-  scale_fill_manual(name = "Outsourced", breaks = c(0, 1),
-                    values = c("blue", "red"),
-                    labels = c("Not Outsourced", "Outsourced")) +
-  scale_y_continuous(expand = expand_scale(mult = c(0, 0.05))) +
-  theme_light(base_size = 16)
-
-ggsave(str_c(figure_folder, "HO Max Tenure.pdf"),
-       height = height, width = width)
 
 # Log Weekly Wage Distribution --------------------------------------------
 
 # What is distribution of log wages each year for outsourced vs
 # non-outsourced jobs in outsourcing occupations
 timeline_yearly <- timeline %>% 
-  filter(!is.na(outsourced), !is.na(year), ho_occ) %>%
+  filter(!is.na(outsourced), !is.na(year), (ho_occ == 1)) %>%
   group_by(case_id, emp_id, year) %>% 
   # Keep only last week observed each year
   filter(week == max(week))
@@ -925,6 +914,70 @@ temp <- timeline_yearly %>%
   scale_y_continuous(expand = expand_scale(mult = c(0, 0.05))) +
   theme_light(base_size = 16)
 
+
+# Unemployment And Not Working Rates --------------------------------------
+
+# Create a table with average unemployment and non-woring rates 
+# for each week by ever_ho_occ
+
+unemployed <- timeline %>%
+  as_survey_design(id = case_id, weight = weight) %>% 
+  group_by(week, ever_ho_occ) %>% 
+  summarise(
+    working = survey_mean(working, na.rm = T),
+    unemployed = survey_mean(unemployed, na.rm = T),
+    weight_w = unweighted(sum(weight) / 1000)
+    ) %>% 
+  as_survey_design(id = week, weight = weight_w) %>%
+  group_by(ever_ho_occ) %>% 
+  summarise(
+    not_working = survey_mean(1 - working, na.rm = T),
+    unemployed = survey_mean(unemployed, na.rm = T),
+    n = unweighted(n())
+    ) %>% 
+  arrange(desc(ever_ho_occ))
+
+# Plot in Latex
+table <- str_c(table_top, siunitx,
+"
+\\begin{tabular}{lSS}
+\\toprule
+& {Ever HO Occ} & {Never HO Occ}   \\\\  \\midrule \n
+"
+)
+
+vars <- c("unemployed", "not_working")
+var_names <- c("Unemployed", "Disemployed")
+
+for (i in seq_along(vars)) {
+  var <- vars[i]
+  se <- str_c(var, "se", sep = "_")
+  stars <- test(unemployed, var, "n", 1, 2, "prop")
+  table %<>% str_c(
+    var_names[i], 
+    format_val(unemployed[[var]][1], r = 4, s = 4),
+    format_val(unemployed[[var]][2], star = stars, r = 4, s = 4), "\\\\ \n",
+    format_se(unemployed[[se]][1], r = 4, s = 4),
+    format_se(unemployed[[se]][2], r = 4, s = 4), "\\\\ \n")
+}
+
+table %<>% str_c(
+  "Observations", format_n(unemployed$n[1]), format_n(unemployed$n[2]), "\\\\ \n",
+"\\bottomrule
+\\end{tabular}
+\\caption{Average weekly unemployment and disemployment rates based on
+if worker is ever employed in a high outsourcing occupation (HO Occ).
+Stars represent
+significant difference from ever HO Occupation at the .10 level *,
+.05 level **, and .01 level ***.}
+\\label{unemp}
+\\end{table}
+\\end{document}")
+
+write.table(table,
+            str_c(table_folder,
+                  "NLSY79 HO Occupations/Unemployment.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
 
 # Outsourcing vs Occupation Characteristics -------------------------------
 

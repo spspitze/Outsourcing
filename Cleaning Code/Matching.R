@@ -474,7 +474,7 @@ write.table(str_c(top_q, bot_q),
 matched %<>% mutate(max_tenure = tenure)
 
 # Variables to use mean, mode, max, and min 
-mean_vars <- c("hours_week", "tenure", "union", "union_fill", "log_real_hrly_wage",
+mean_vars <- c("hours_week", "tenure", "union", "log_real_hrly_wage",
                "log_real_wkly_wage", "part_time", "childcare", "dental",
                "flex_sched", "health", "job_sat", "life", "maternity", "profit_share",
                "retirement", "train_school", "any_benefits", "sample_id", "female",
@@ -483,7 +483,8 @@ mean_vars <- c("hours_week", "tenure", "union", "union_fill", "log_real_hrly_wag
                "indep_con", "on_call", "outsourced", "temp_work", "traditional",
                "ever_out_oj", "ever_out_m")
 
-mode_vars <- c("ind", "occ", "ind_cat", "occ_cat", "marital_status", "msa", "region")
+mode_vars <- c("ind", "occ", "ind_cat", "occ_cat", "marital_status", "msa", "region",
+               "union_fill")
 
 min_vars <- c("week_start_job")
 
