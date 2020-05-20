@@ -15,7 +15,7 @@ library(tidyverse)
 # Folders of interest
 clean_folder <- "../Cleaned Data/"
 table_folder <- "../Tables/"
-figure_folder <- "../Figures/NLSY 79/"
+figure_folder <- "../Figures/NLSY 79 Matched/"
 
 # For saving graphs
 aspect_ratio <- 1.62
@@ -556,7 +556,7 @@ vars_sum <- c("outsourced", "age", "black", "hispanic",
               "n", "weight_w", "ho_occ")
 
 occupation_type <- matched_jobs %>% 
-  filter(!is.na(ho_occ), !is.na(occ)) %>% 
+  filter(!is.na(ho_occ)) %>% 
   as_survey_design(ids = case_id, weights = weight) %>% 
   group_by(occ) %>% 
   mutate(
@@ -639,7 +639,7 @@ center <- readChar(file_1, nchars = 1e6)
 bot <- "
 \\bottomrule
 \\end{tabular}
-\\caption{Summary statistics of jobs divided by High Outsourcing (HO) occupations
+\\caption{Summary statistics of jobs divided by high outsourcing (HO) occupations
 (all occupations with outsourcing two times more than average) vs not.
 Stars represent significant difference from HO occupations at the .10 level *, 
 .05 level **, and .01 level ***.}
@@ -1060,9 +1060,9 @@ for (loop in 1:2) {
       center %<>% cbind(
         rbind(format_val(temp$coefficients["outsourced"], r=3, s=3, star = stars),
               format_se(temp$std.error["outsourced"], r=3, s=3),
+              str_c(" & ", ife_ind),
               str_c(" & ", ten_ind),
               str_c(" & ", occ_ind),
-              str_c(" & ", ife_ind),
               format_val(temp$r.squared),
               format_n(lm_N(temp))
         )
@@ -1332,7 +1332,7 @@ for (ob in 1:2) {
         scale_fill_manual(name = "Outsourced", breaks = c(0, 1),
                           values = c("blue", "red"),
                           labels = c("Not Outsourced", "Outsourced")) +
-        scale_y_continuous(expand = expand_scale(mult = c(0, 0.05))) +
+        scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
         theme_light(base_size = 16) 
       
       ggsave(str_c(figure_folder, s_saves[ob],
@@ -1387,7 +1387,7 @@ for (ob in 1:2) {
           scale_fill_manual(name = "Outsourced", breaks = c(0, 1),
                             values = c("blue", "red"),
                             labels = c("Not Outsourced", "Outsourced")) +
-          scale_y_continuous(expand = expand_scale(mult = c(0, 0.05))) +
+          scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
           theme_light(base_size = 16) 
         
         ggsave(str_c(figure_folder, s_saves[ob], var_saves[i],
@@ -1408,7 +1408,7 @@ for (ob in 1:2) {
           scale_fill_manual(name = "Outsourced", breaks = c(0, 1),
                             values = c("blue", "red"),
                             labels = c("Not Outsourced", "Outsourced")) +
-          scale_y_continuous(expand = expand_scale(mult = c(0, 0.05))) +
+          scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
           theme_light(base_size = 16) 
         
         ggsave(str_c(figure_folder, s_saves[ob],
