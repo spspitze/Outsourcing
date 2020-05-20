@@ -222,7 +222,7 @@ long %<>%
   group_by(case_id) %>%
   fill(msa, region, marital_status, tot_child, hh_child, .direction = "downup") %>%  
   ungroup() %>% 
-  select(-birth_year, -educ)
+  select(-educ)
 
 # Save the data
 write_csv(long, str_c(clean_folder, "demographics_clean.csv"))

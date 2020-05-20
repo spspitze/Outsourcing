@@ -6,6 +6,7 @@
 rm(list = ls())
 
 # This uses a large dataset, so data.table is needed
+library(lubridate)
 library(magrittr)
 library(DescTools)
 library(tidyverse)
@@ -76,8 +77,8 @@ transition %<>%
 # Create weeks_prev_job and weeks_next_job using start/stop weeks
 transition %<>% 
   mutate(
-    weeks_prev_job = time_length(first_week_curr - last_week_prev, unit = "week"),
-    weeks_next_job = time_length(first_week_next - last_week_curr, unit = "week")
+    weeks_job_prev = time_length(first_week_curr - last_week_prev, unit = "week"),
+    weeks_job_next = time_length(first_week_next - last_week_curr, unit = "week")
   ) %>% 
   # select and rename some variables
   select(-starts_with("female"), -starts_with("rank"),

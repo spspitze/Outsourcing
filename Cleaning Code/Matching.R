@@ -513,14 +513,14 @@ matched_jobs <- list(.vars = lst(mean_vars, mode_vars, min_vars, max_vars),
 matched <- matched %>% 
   select(-month_start_job, -month_end_job, -job, -job_oj, -month_start_job_oj,
          -month_end_job_oj, -looped, -match_flag_1, -match_flag_2,
-         -count, -looped, -max_tenure)
+         -count, -looped, -max_tenure, -birth_year)
 
 # Remove uneeded data sets to free up memory
 rm("matches", "match_rhs", "on_jobs_miss", "ever_out_count", "match_list",
-   "on_jobs", "ehr_es", "demographics", "emp_sup", "hist_rost", 
+   "on_jobs", "ehr_es", "emp_sup", "hist_rost", 
    "si", "om", "p_m", "top", "bot", "oj_info", "oj_info_missed", "oj_missed",
    "oj_obs", "m_q_table", "obs", "match_base", "labels", "end", "fill_mean",
-   "bot_oj", "bot_q", "mean_var", "mode_vars", "max_vars", "min_vars")
+   "bot_oj", "bot_q", "mean_vars", "mode_vars", "max_vars", "min_vars")
 
 # Merge Timeline With Job Info --------------------------------------------
 
@@ -564,7 +564,7 @@ for (var in vars) {
   timeline <- timeline[(get(var) == max) %in% T | is.na(emp_id) | (non_na == 0)]
 }
 
-# If an remain, take lowest emp_id
+# If any remain, take lowest emp_id
 timeline <- 
   timeline[, max := min(emp_id, na.rm = T), by = .(case_id, week)]
 timeline <- timeline[(emp_id == max) %in% T | is.na(emp_id)]
@@ -607,7 +607,7 @@ timeline <- timeline[
   week_end_job := week]
 
 # Set the emp_id of these jobs as the rank of their start date
-# First set emp_id of Week_start_job then fill in rest
+# First set emp_id of week_start_job then fill in rest
 timeline <- timeline[is.na(emp_id) & !is.na(week_start_job),
                      emp_id := rank(week_start_job), by = case_id]
 
@@ -615,18 +615,32 @@ timeline <- timeline[working == 1 & (is.na(emp_id) | emp_id < 1000),
                        emp_id := nafill(emp_id, type = "locf"),
                        by = case_id]
 
+# Set age by birth year. Spread birth year to non-employed weeks first
+
+
 # Drop uneeded variables. Re-match weights so non-matched have weights too
 timeline <- timeline[, c(
-  "max", "count", "non_na", "week_start_match", "week_end_match", "weight",
-  "max_tenure", "working_next", "working_prev", "emp_id_next", "emp_id_prev") := NULL]
+  "max", "count", "non_na", "week_start_match", "week_end_match",
+  "weight", "age", "birth_year", "max_tenure", "working_next", "working_prev",
+  "emp_id_next", "emp_id_prev") := NULL]
 
-matched_jobs <- matched_jobs[, c("max_tenure",
-                                 "week_start_match",
+matched_jobs <- matched_jobs[, c("week_start_match",
                                  "week_end_match") := NULL]
 
+# Add birth_year from demographics (to get age) with weights
 weights %<>% data.table()
+demographics %<>% 
+  select(case_id, birth_year) %>%
+  unique() %>% 
+  data.table()
+
+weights <- demographics[weights, on = .(case_id == case_id)]
 
 timeline <- weights[timeline, on = .(case_id == case_id)]
+
+timeline <- timeline[, `:=`(age = year(week) - birth_year, 
+                            birth_year = NULL)]
+
 
 # Plot Timeline -----------------------------------------------------------
 

@@ -200,8 +200,7 @@ long <- new_data %>%
   # Drop remaining EMPLOYER_ALL
   select(-starts_with("EMPLOYERS_ALL"))
 
-# Change Date to year, report cpi of each year and cpi_a as average cpi of last 
-# two years
+# Change Date to year, report cpi of each year 
 # Get CPI from raw_folder
 cpi <- read_csv(str_c(raw_folder, "CPIAUCSL.csv"),
                 col_types = cols(
@@ -213,7 +212,7 @@ cpi <- cpi %>%
   rename(year = DATE, cpi = CPIAUCSL) %>% 
   mutate(year = year(year))
 
-# For now, use cpi from year 2016 as base
+# Use cpi from year 2016 as base
 base_cpi <- cpi$cpi[cpi$year == 2016]
 
 fill_mean <- c("hours_week", "log_real_hrly_wage", "log_real_hrly_wage",

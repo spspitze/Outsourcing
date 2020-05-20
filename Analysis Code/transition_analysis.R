@@ -28,6 +28,21 @@ width <- height * aspect_ratio
 # Download the data
 transition <- read.csv(str_c(clean_folder, "matched_transition.csv"))
 
+# Some figures calculated are useful for calbirating the model.
+# Use these to update model_parameters
+model_parameters <- read_csv(str_c(clean_folder, "model_parameters.csv"),
+                             col_types = cols(
+                               variable = col_character(),
+                               value = col_double()
+                             ))
+
+# Create a function to update model_parameters given variable
+# with correct name
+update_parameters <- function(name, val) {
+  model_parameters$value[model_parameters$variable == name] <- val
+  model_parameters
+}
+
 # Create a function that finds difference of means or proportions and reports
 # * if 10%, ** if 5%, and *** if 1% different
 test <- function(data, var, obs, row_1, row_2, type) {
@@ -177,11 +192,10 @@ table-align-text-post = false,
 group-digits          = false
 }"
 
-# Summary Statistics ------------------------------------------------------
-
 # Rename union_fill to make matching easier
 # Trim top 1% of time to find job
-# Create weeks_prev/next_job_2 that sets 1 week to NA
+# Create wj_prev/next that sets 1 week to NA
+# Create jj_transition if weeks_job_prev = 1
 # Create same occ/ind prev/next
 transition %<>%
   mutate(
@@ -189,18 +203,22 @@ transition %<>%
     u_f_prev = union_fill_prev,
     u_f_next = union_fill_next,
     weeks_job_prev = ifelse(
-      weeks_prev_job < quantile(weeks_prev_job, .99, na.rm = T), 
-      weeks_prev_job, NA),
+      weeks_job_prev < quantile(weeks_job_prev, .99, na.rm = T), 
+      weeks_job_prev, NA),
     weeks_job_next = ifelse(
-      weeks_next_job < quantile(weeks_next_job, .99, na.rm = T), 
-      weeks_next_job, NA),
-    wj_2_prev = ifelse(weeks_prev_job > 1, weeks_prev_job, NA),
-    wj_2_next = ifelse(weeks_next_job > 1, weeks_next_job, NA),
+      weeks_job_next < quantile(weeks_job_next, .99, na.rm = T), 
+      weeks_job_next, NA),
+    wj_prev = ifelse(weeks_job_prev > 1, weeks_job_prev, NA),
+    wj_next = ifelse(weeks_job_next > 1, weeks_job_next, NA),
+    jj_prev = 1 * (weeks_job_prev == 1),
+    jj_next = 1 * (weeks_job_next == 1),
     same_occ_prev = (occ_curr == occ_prev),
     same_ind_prev = (ind_curr == ind_prev),
     same_occ_next = (occ_curr == occ_next),
     same_ind_next = (ind_curr == ind_next)
   )
+
+# Summary Statistics ------------------------------------------------------
 
 # Create a function that appends all variable names with each of a vector
 # of given suffixes
@@ -219,7 +237,7 @@ vars_sum_all <- c("log_real_hrly_wage", "log_real_wkly_wage", "hours_week", "par
                   "retirement", "self_emp", "indep_con", "on_call",
                   "temp_work", "traditional")
 
-vars_sum_np <- c("same_occ", "same_ind", "outsourced", "weeks_job", "wj_2")
+vars_sum_np <- c("same_occ", "same_ind", "outsourced", "weeks_job", "wj", "jj")
 
 vars_mean <- c(add_suffix(vars_sum_all, c("curr", "prev", "next")),
                add_suffix(vars_sum_np, c("prev", "next")),
@@ -287,11 +305,11 @@ for (ho in 1:2) {
   }
   
   center <- rbind("Outsourced", "", "Same", "Occupation", "Same", "Industry",
-                    "Log Real", "Hourly Wage", "Log Real", "Weekly Earnings", "Hours Worked",
-                    "Weekly", "Part Time", "", "Union", "","Job Satisfaction",
-                    "(Lower Better)", "Health", "Insurance", "Any Benefits", "",
-                    "Weeks To", "Find Job", "Weeks To", "Find Job ($>1$ week)",
-                    "Observations")
+                  "Log Real", "Hourly Wage", "Log Real", "Weekly Earnings", 
+                  "Hours Worked", "Weekly", "Part Time", "", "Union", "",
+                  "Job Satisfaction", "(Lower Better)", "Health", "Insurance",
+                  "Any Benefits", "", "Weeks To", "Find Job", "Weeks To", 
+                  "Find Job ($>1$ week)", "1 Week to", "Find Job", "Observations")
     
   for (out in c(1, 4)){
     
@@ -368,21 +386,25 @@ for (ho in 1:2) {
       )
     }
     
-    # Weeks to find job (raw and >1) and n observations
+    # Weeks to find job (raw and >1), jj transitions, and n observations
     temp %<>% rbind(
       cbind(rbind(
               format_val(transition_summary[[ho]]$weeks_job[i_p]),
               format_se(transition_summary[[ho]]$weeks_job_se[i_p], 3),
-              format_val(transition_summary[[ho]]$wj_2[i_p]),
-              format_se(transition_summary[[ho]]$wj_2_se[i_p], 3),
+              format_val(transition_summary[[ho]]$wj[i_p]),
+              format_se(transition_summary[[ho]]$wj_se[i_p], 3),
+              format_val(transition_summary[[ho]]$jj[i_p]),
+              format_se(transition_summary[[ho]]$jj_se[i_p], 3),
               " & "),
-            rbind(" & {--}", " & {--}", " & {--}", " & {--}",
+            rbind(" & {--}", " & {--}", " & {--}", " & {--}", " & {--}", " & {--}",
                   format_n(transition_summary[[ho]]$n[i])),
             rbind(
               format_val(transition_summary[[ho]]$weeks_job[i_n]),
               format_se(transition_summary[[ho]]$weeks_job_se[i_n], 3),
-              format_val(transition_summary[[ho]]$wj_2[i_n]),
-              format_se(transition_summary[[ho]]$wj_2_se[i_n], 3),
+              format_val(transition_summary[[ho]]$wj[i_n]),
+              format_se(transition_summary[[ho]]$wj_se[i_n], 3),
+              format_val(transition_summary[[ho]]$jj[i_n]),
+              format_se(transition_summary[[ho]]$jj_se[i_n], 3),
               " & ")
             )
       )
@@ -396,7 +418,7 @@ for (ho in 1:2) {
               "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
               "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
               "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
-              "\\\\", "\\\\[2pt]", "\\\\"))
+              "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\"))
     }
     
   }
@@ -431,10 +453,9 @@ significant difference from 0) at the .10 level *, .05 level **, and .01 level *
   
 }
 
-
 # Weeks to Job ------------------------------------------------------------
 
-# Focus on weeks_job_prev and wj_2_prev using HO Occupations 
+# Focus on weeks_job_prev and wj_prev using HO Occupations 
 # (transition_summary[[2]])
 
 # Plot mean 
@@ -452,14 +473,14 @@ table %<>% str_c(
   format_val(transition_summary[[2]]$weeks_job[5],
              test(transition_summary[[2]], "weeks_job", "n",
                     2, 5, type = "mean")),
-  format_val(transition_summary[[2]]$wj_2[2]),
-  format_val(transition_summary[[2]]$wj_2[5], 
-             test(transition_summary[[2]], "wj_2", "n",
+  format_val(transition_summary[[2]]$wj[2]),
+  format_val(transition_summary[[2]]$wj[5], 
+             test(transition_summary[[2]], "wj", "n",
                     2, 5, type = "mean")), "\\\\ \n",
   format_se(transition_summary[[2]]$weeks_job_se[2]),
   format_se(transition_summary[[2]]$weeks_job_se[5]),
-  format_se(transition_summary[[2]]$wj_2_se[2]),
-  format_se(transition_summary[[2]]$wj_2_se[5]),
+  format_se(transition_summary[[2]]$wj_se[2]),
+  format_se(transition_summary[[2]]$wj_se[5]),
   "\\\\ \n")
 
 table %<>% str_c(
@@ -480,8 +501,8 @@ write.table(
   quote=F, col.names=F, row.names=F, sep="")
 
 # Plot figures 
-var_g <- c("weeks_job_prev", "wj_2_prev")
-var_g_s <- c("weeks_job", "wj_2")
+var_g <- c("weeks_job_prev", "wj_prev")
+var_g_s <- c("weeks_job", "wj")
 var_names <- c("Weeks to Find Job", "Weeks to Find Job")
 var_save <- c("Weeks to Job", "Weeks to Job G1")
 
@@ -491,13 +512,11 @@ trans_plot <- split_data(transition)
 for (ho in 1:2) {
   for (i in seq_along(var_g)) {
       
-    # All occupations
     temp <- trans_plot[[ho]] %>%
       filter(!is.na(.[[var_g[i]]]), !is.na(outsourced_curr),
              .[[var_g[i]]] < quantile(.[[var_g[i]]], .99, na.rm = T)) %>% 
-      ggplot() +
-      geom_density(aes_string(var_g[i], fill = "factor(outsourced_curr)"),
-                   alpha = 0.2) +
+      ggplot(aes_string(var_g[i], fill = "factor(outsourced_curr)")) +
+      geom_density(alpha = 0.2, bounds = c(i - 1, Inf)) +
       geom_vline(aes(xintercept = transition_summary[[ho]][[var_g_s[i]]][2]),
                  color = "red", size=1) +
       geom_vline(aes(xintercept = transition_summary[[ho]][[var_g_s[i]]][5]),
@@ -506,13 +525,65 @@ for (ho in 1:2) {
       scale_fill_manual(name = "Outsourced", breaks = c(0, 1),
                         values = c("blue", "red"),
                         labels = c("Not Outsourced", "Outsourced")) +
-      scale_y_continuous(expand = expand_scale(mult = c(0, 0.05))) +
+      scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
       theme_light(base_size = 16)
     
     ggsave(str_c(figure_folder, var_save[i], ho_save[ho], ".pdf"),
            height = height, width = width)
   }
 }
+
+# Update model_parameters with median wj_prev (no job-job transitions)
+# for all ever_ho_occ workers to any job
+median_weeks_to_job <- transition %>% 
+  filter(!is.na(outsourced_curr)) %>% 
+  as_survey_design(ids = case_id, weights=weight) %>% 
+  summarise(weeks_to_job = survey_median(weeks_job_prev, na.rm = T))
+
+lam <- median_weeks_to_job$weeks_to_job[1]
+l <- 1 - .5 ^ (1 / (lam))
+
+model_parameters <- update_parameters("lam", lam)
+model_parameters <- update_parameters("l", l)
+
+write_csv(model_parameters, str_c(clean_folder, "model_parameters.csv"))
+
+# Plot to see how reasonable this looks
+max_w <- 75
+plot <- trans_plot[[2]] %>%
+  filter(!is.na(weeks_job_prev), !is.na(outsourced_curr),
+         weeks_job_prev < max_w)
+
+weeks <- 0:max_w
+not_found <- 1 - (1 - l) ^ weeks
+# Turn not found into found pdf and adjust for population size
+found_pdf <- (not_found[2:length(weeks)] - not_found[1:(length(weeks) - 1)])
+found_hist <- found_pdf * NROW(plot)
+
+sim <- str_c("l = ", round(l, 3))
+temp <- ggplot() +
+  geom_density(aes(x = plot$weeks_job_prev, fill = "Data"),
+                 alpha = 0.2, bounds = c(0, max_w)) +
+  geom_point(aes(x = 1:max_w, y = found_pdf, color = sim), alpha = 1) +
+  labs(x = "Weeks to Find Job", y = "Count") +
+  scale_fill_manual(name = "Data", 
+                    values = c("blue"),
+                    labels = c("Data")) +
+  scale_color_manual(name = "Model",
+                     values = c("orange"),
+                     labels = c(sim) 
+                     ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  theme_light(base_size = 16)
+
+ggsave(str_c(figure_folder, "Weeks To Job Data vs Model.pdf"),
+       height = height, width = width)
+
+# Separate Job-Job Transitions --------------------------------------------
+
+# Try to estimate how many workers go from job-job transitions.
+# For now, assume all 1 week job gaps are job-job transitions (marked as jj)
+
 
 
 # Regression on Weeks to Jobs ---------------------------------------------
@@ -636,7 +707,7 @@ for (j in 1:2){
         scale_fill_manual(name = "Weeks to\nFind Job", breaks = c("blue", "red"),
                           values = c("blue", "red"),
                           labels = c("Actual", "Estimated")) +
-        scale_y_continuous(expand = expand_scale(mult = c(0, 0.05))) +
+        scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
         theme_light(base_size = 16) 
       
       ggsave(str_c(figure_folder, 
