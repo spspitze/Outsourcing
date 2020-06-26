@@ -578,6 +578,8 @@ occ_timeline <- timeline %>%
   ) %>% 
   group_by(week) %>% 
   mutate(workers_per = workers / sum(workers) * 100) %>% 
+  group_by(occ) %>% 
+  mutate(average_size = mean(workers_per)) %>% 
   ungroup()
   
 # Save occ_timeline in cleaned_data to compare with cps data
@@ -593,12 +595,13 @@ occ_corr <- occ_timeline %>%
           use = "na.or.complete"),
     corr_wages = cor(outsourced_per, log_real_wkly_wage_0, use = "na.or.complete"),
     ho_occ = mean(ho_occ),
-    workers_mean = mean(workers)
+    average_size = mean(average_size)
     ) %>% 
   filter(!is.na(corr_emp))
 
+# Look at correlation weighted by average occ size
 occ_corr_w <- occ_corr %>% 
-  as_survey_design(ids = occ, weights=workers_mean) %>% 
+  as_survey_design(ids = occ, weights = average_size) %>% 
   summarise(
     corr_emp = unweighted(mean(corr_emp)),
     corr_emp_se = unweighted(sd(corr_emp) / sqrt(n())),
@@ -615,8 +618,10 @@ occ_corr_w <- occ_corr %>%
     w_corr_wages = survey_mean(corr_wages, na.rm = T, vartype = "se")
     ) 
 
+
+# Look at correlation weighted by average occ size for ho vs not occs
 occ_corr_w_g <- occ_corr %>% 
-  as_survey_design(ids = occ, weights=workers_mean) %>% 
+  as_survey_design(ids = occ, weights = average_size) %>% 
   group_by(ho_occ) %>% 
   summarise(
     corr_emp = unweighted(mean(corr_emp)),
@@ -734,12 +739,12 @@ for (i in 1:3) {
   temp <- occ_corr %>% 
     filter(!is.na(.[[corr]])) %>% 
     ggplot() +
-    geom_point(aes_string(x = corr, y = "workers_mean",
+    geom_point(aes_string(x = corr, y = "average_size",
                           color = "factor(ho_occ)"), alpha = 0.4) +
     geom_vline(aes(xintercept = w_corr_all), size=1) +
     geom_vline(aes(xintercept = w_corr_ho), color = "red", size=1) +
     geom_vline(aes(xintercept = w_corr_lo), color = "blue", size=1)  +
-    labs(x = "Correlation", y = "Average Number of Workers")+
+    labs(x = "Correlation", y = "Average Occupation Worker Share")+
     scale_color_manual(name = "Occupation\nOutsourcing", breaks = c(0, 1),
                       values = c("blue", "red"),
                       labels = list(expression("Low (" < " 3.4%)"), 
@@ -751,22 +756,17 @@ for (i in 1:3) {
          height = height, width = width)
   
   # Append table
-  table_c <- str_c(table_c, var_names[i], " & & & & \\\\ \\midrule\n",
-                   "All & ",
-                   format_it(corr_all), " & ",
-                   format_it(t_all), " & ",
-                   format_it(w_corr_all), " & ",
-                   format_it(w_t_all), " \\\\ \n",
-                   "High Outsourcing & ",
-                   format_it(corr_ho), " & ",
-                   format_it(t_ho), " & ",
-                   format_it(w_corr_ho), " & ",
-                   format_it(w_t_ho), " \\\\ \n",
-                   "Low Outsourcing & ",
-                   format_it(corr_lo), " & ",
-                   format_it(t_lo), " & ",
-                   format_it(w_corr_lo), " & ",
-                   format_it(w_t_lo), " \\\\ \n")
+  table_c %<>% str_c(
+    var_names[i], " & & & & \\\\ \\midrule\n",
+    "All ",
+    format_val(corr_all), format_val(t_all),
+    format_val(w_corr_all), format_val(w_t_all), " \\\\ \n",
+    "High Outsourcing ",
+    format_val(corr_ho), format_val(t_ho), 
+    format_val(w_corr_ho), format_val(w_t_ho), " \\\\ \n",
+    "Low Outsourcing ",
+    format_val(corr_lo), format_val(t_lo), 
+    format_val(w_corr_lo), format_val(w_t_lo), " \\\\ \n")
   
   if (i %in% c(1, 2)) {
     table_c <- str_c(table_c, "\\midrule\n")
@@ -777,9 +777,9 @@ for (i in 1:3) {
 \\end{tabular}
 \\caption{Mean correlation between an occupation's percent of all jobs and either
   percent of that occupation that is outsourced or wage level of non-outsourced
-  and outsourced workers at the week level. High Outsourcing 
+  and outsourced workers at the week level. High outsourcing 
   occupations are occupations that are outsourced at more than twice the 
-  average rate, non-outsourcing occupations are all others. Unweighted
+  average rate, low outsourcing occupations are all others. Unweighted
   correlations treat all occupations the same, weighted weight by 
   average weekly observations.}
   \\label{occ_corr}
@@ -821,10 +821,10 @@ Dependent Variable & {Outsourced Percent} & {Dependent Mean}   \\\\  \\midrule
 eq <- create_formula("workers_per", controls)
 
 temp <- lm_robust(eq, data = occ_timeline, fixed_effects = !!fe,
-                  weights = workers, clusters = occ, 
-                  se_type = "stata", try_cholesky = T)
+                  subset = year(week) <= 2014,
+                  clusters = occ, se_type = "stata", try_cholesky = T)
 
-t_mean <- weighted.mean(occ_timeline$workers_per, occ_timeline$workers) 
+t_mean <- mean(occ_timeline$workers_per, na.rm = T) 
 
 center <- rbind(
   cbind("Percent of Workers", 
@@ -858,11 +858,9 @@ for (out in 0:1){
     eq <- create_formula(outcome, controls)
     
     temp <- lm_robust(eq, data = occ_timeline, fixed_effects = !!fe,
-                         weight = workers, clusters = occ,
-                         se_type = "stata", try_cholesky = T)
+                      clusters = occ, se_type = "stata", try_cholesky = T)
       
-    t_mean <- weighted.mean(occ_timeline[[outcome]], occ_timeline$workers,
-                            na.rm = T) 
+    t_mean <- weighted.mean(occ_timeline[[outcome]], na.rm = T) 
     
     center %<>% rbind(
       cbind(outcome_names[i], 
@@ -896,8 +894,8 @@ average job characteristics. Each regression contains controls for percent
 Black, Hispanic, and union member, average age and age squared, and fixed effects
 at the occupation and week level. Outcomes include percent of jobs in the occupation
 and average job characteristics of non-outsourced and outsourced jobs.
-Regressions are weighted by number of observations and robust standard errors
-are clustered at the occupation level. Stars represent
+Regressions use robust standard errors clustered at the occupation level. 
+Stars represent
 significant difference from 0 at the .10 level *, .05 level **, and .01 level ***.}
 \\label{occ_corr_reg}
 \\end{table}
@@ -939,7 +937,7 @@ outsourcing_per_mean <- weighted.mean(outsourcing_per$outsourcing_per,
 temp <- outsourcing_per %>% 
   ggplot() +
   geom_density(aes(outsourcing_per, weight = weight), 
-               alpha = 0.4, fill = "blue", bounds = (0, 100)) +
+               alpha = 0.4, fill = "blue", bounds = c(0, 100)) +
   geom_vline(aes(xintercept = outsourcing_per_mean), size = 1) +
   geom_text(aes(x = outsourcing_per_mean + 1, y = .016, hjust = 0,
                 label = str_c("Mean = ", round(outsourcing_per_mean, 2))),
@@ -1056,12 +1054,11 @@ temp <- ggplot() +
 ggsave(str_c(figure_folder, "Max Tenure Data vs Model.pdf"),
        height = height, width = width)
 
-# Log Weekly Wage Distribution --------------------------------------------
+# Log Weekly Wage Distribution by Year --------------------------------------------
 
-# What is distribution of log wages each year for outsourced vs
-# non-outsourced jobs in outsourcing occupations
+# What is distribution of log wages each year for outsourced vs non-outsourced jobs
 timeline_yearly <- timeline %>% 
-  filter(!is.na(outsourced), !is.na(year), (ho_occ == 1)) %>%
+  filter(!is.na(outsourced), !is.na(year)) %>%
   group_by(case_id, emp_id, year) %>% 
   # Keep only last week observed each year
   filter(week == max(week))
@@ -1078,22 +1075,36 @@ ss_yearly <- timeline %>%
   )
 
 temp <- timeline_yearly %>% 
-  filter(outsourced == 0, !is.na(log_real_wkly_wage),
-         year(year) %in% seq(2002, 2014, by = 4)) %>% 
-  ggplot(aes(log_real_wkly_wage, fill = factor(year))) +
+  filter(!is.na(log_real_wkly_wage), year(year) <= 2016) %>% 
+  ggplot(aes(log_real_wkly_wage, fill = factor(outsourced))) +
   geom_density(alpha = 0.2) +
   labs(x = "Log Real Weekly Wages", y = "Density") +
   scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
-  theme_light(base_size = 16)
+  scale_fill_manual(name = "Outsourced", breaks = c(0, 1),
+                    values = c("blue", "red"),
+                    labels = c("Not Outsourced", "Outsourced")) +
+  theme_light(base_size = 16) +
+  facet_wrap(~ year(year))
+
+ggsave(str_c(figure_folder, "LRW Wage Distribution by Year.pdf"),
+       height = height, width = width)
 
 temp <- timeline_yearly %>% 
-  filter(outsourced == 1, !is.na(log_real_wkly_wage),
-         year(year) %in% seq(2002, 2014, by = 4)) %>%
-  ggplot(aes(log_real_wkly_wage, fill = factor(year))) +
+  filter(!is.na(log_real_wkly_wage), year(year) <= 2016,
+         ever_ho_occ == 1) %>% 
+  ggplot(aes(log_real_wkly_wage, fill = factor(outsourced))) +
   geom_density(alpha = 0.2) +
   labs(x = "Log Real Weekly Wages", y = "Density") +
   scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
-  theme_light(base_size = 16)
+  scale_fill_manual(name = "Outsourced", breaks = c(0, 1),
+                    values = c("blue", "red"),
+                    labels = c("Not Outsourced", "Outsourced")) +
+  theme_light(base_size = 16) +
+  facet_wrap(~ year(year))
+
+ggsave(str_c(figure_folder, "LRW Wage Distribution by Year Ever HO.pdf"),
+       height = height, width = width)
+
 
 # Outsourcing vs Occupation Characteristics -------------------------------
 

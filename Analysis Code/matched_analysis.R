@@ -27,9 +27,7 @@ matched <- read_csv(str_c(clean_folder, "matched.csv"),
   col_types = cols(
     .default = col_double(),
     week_start_job = col_date(format = ""),
-    week_end_job = col_date(format = ""),
-    ho_occ = col_logical(),
-    ever_ho_occ = col_logical()
+    week_end_job = col_date(format = "")
   )) %>% 
   filter(female == 0)
 
@@ -37,9 +35,7 @@ matched_jobs <- read_csv(str_c(clean_folder, "matched_jobs.csv"),
                          col_types = cols(
                            .default = col_double(),
                            week_start_job = col_date(format = ""),
-                           week_end_job = col_date(format = ""),
-                           ho_occ = col_logical(),
-                           ever_ho_occ = col_logical()
+                           week_end_job = col_date(format = "")
                          ))%>% 
   filter(female == 0)
 
@@ -668,6 +664,47 @@ for (i in 1:4) {
     arrange(desc(union_fill))
 }
 
+
+# Within Job Wage Distribution --------------------------------------------
+
+# Does the within job wage distribution (wage - starting wage) look
+# different for outsourced vs non-outsourced (for jobs with >=2 obs)
+
+multi_year <- matched %>% 
+  filter(!is.na(log_real_wkly_wage), !is.na(log_real_hrly_wage)) %>% 
+  group_by(case_id, emp_id) %>% 
+  mutate(
+    ever_ho_occ = max(ever_ho_occ),
+    rank = rank(int_year),
+    lrww_min_start = log_real_wkly_wage - log_real_wkly_wage[which(rank == 1)]
+    ) %>% 
+  filter(rank > 1, rank <= 7, lrww_min_start > -2.5, lrww_min_start < 2.5)
+
+temp <- ggplot(multi_year) +
+  geom_density(aes(lrww_min_start, fill = factor(outsourced)), alpha = 0.2) +
+  labs(x = "Log Real Weekly Wages", y = "Density") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  scale_fill_manual(name = "Outsourced", breaks = c(0, 1),
+                    values = c("blue", "red"),
+                    labels = c("Not Outsourced", "Outsourced")) +
+  theme_light(base_size = 16) + 
+  facet_wrap(~ rank)
+  
+ggsave(str_c(figure_folder, "LRW Wage Compared to First Observation.pdf"),
+       height = height, width = width)
+
+temp <- ggplot(multi_year %>% filter(ever_ho_occ == 1)) +
+  geom_density(aes(lrww_min_start, fill = factor(outsourced)), alpha = 0.2) +
+  labs(x = "Log Real Weekly Wages", y = "Density") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  scale_fill_manual(name = "Outsourced", breaks = c(0, 1),
+                    values = c("blue", "red"),
+                    labels = c("Not Outsourced", "Outsourced")) +
+  theme_light(base_size = 16) + 
+  facet_wrap(~ rank)
+
+ggsave(str_c(figure_folder, "LRW Wage Compared to First Observation Ever HO.pdf"),
+       height = height, width = width)
 
 # Dube and Kaplan ---------------------------------------------------------
 
@@ -1464,3 +1501,67 @@ workers.}
 write.table(str_c(top, center, bot),
             str_c(table_folder, "NLSY79 Regressions/Residuals.tex"),
             quote=F, col.names=F, row.names=F, sep="")
+
+
+# Look at log real hrly wages in matched_jobs for non-outsourced 
+# ho_occ vs not. Also run a full regression (minus occ fe) 
+# and compare residuals
+
+temp <- matched_jobs %>% 
+  filter(!is.na(log_real_wkly_wage), !is.na(ho_occ), outsourced == 0) %>% 
+  ggplot(aes(log_real_wkly_wage, fill = factor(ho_occ))) +
+  geom_density(alpha = 0.2) +
+  labs(x = "Log Real Weekly Wage", y = "Density") +
+  scale_fill_manual(name = "HO Occupation", breaks = c(0, 1),
+                    values = c("blue", "red"),
+                    labels = c("No", "Yes")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  theme_light(base_size = 16) 
+
+ggsave(str_c(figure_folder, "Jobs LRW Wage Non-Outsourced HO Occ v Not.pdf"),
+       height = height, width = width)
+
+eq <- create_formula("log_real_wkly_wage", c(controls, tenure))
+fe <- create_formula("~", c("region", "marital_status", "msa", "case_id"))
+
+reg <- lm_robust(eq, matched_jobs,
+                 subset = !is.na(region) & !is.na(marital_status) &
+                   !is.na(msa) & !is.na(ho_occ),
+                 weights = weight,
+                 fixed_effects = !!fe,
+                 clusters = sample_id, 
+                 se_type = "stata", try_cholesky = T)
+
+df <- matched_jobs %>% 
+  filter(!is.na(log_real_wkly_wage), !is.na(tenure), 
+         !is.na(tot_child), !is.na(hh_child),
+         !is.na(union_fill), !is.na(region), !is.na(marital_status),
+         !is.na(msa), !is.na(ho_occ)) %>% 
+  mutate(residual = lm_residuals(reg)) %>% 
+  filter(residual != 0, residual >= - 3.5 * sd(residual),
+         residual <= 3.5 * sd(residual), outsourced == 0)
+
+df_sum <- df %>% 
+  as_survey_design(id = case_id, weight = weight) %>% 
+  group_by(ho_occ) %>% 
+  summarise(
+    variance = survey_var(residual, vartype = "ci"),
+    skew = unweighted(Skew(residual, conf.level = .95, ci.type = "basic")[1]),
+    skew_low = unweighted(Skew(residual, conf.level = .95, ci.type = "basic")[2]),
+    skew_upp = unweighted(Skew(residual, conf.level = .95, ci.type = "basic")[3]),
+    obs = unweighted(n())
+  ) %>% 
+  arrange(desc(ho_occ))
+
+temp <- df %>% 
+  ggplot(aes(residual, fill = factor(ho_occ))) +
+  geom_density(alpha = 0.2) +
+  labs(x = str_c("Residual Log Real Weekly Wage"), y = "Density") +
+  scale_fill_manual(name = "HO Occupation", breaks = c(0, 1),
+                    values = c("blue", "red"),
+                    labels = c("No", "Yes")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  theme_light(base_size = 16) 
+
+ggsave(str_c(figure_folder, "Jobs LRW Wage Residuals Non-Outsourced HO Occ v Not.pdf"),
+       height = height, width = width)

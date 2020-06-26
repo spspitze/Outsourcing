@@ -11,6 +11,7 @@
 rm(list = ls())
 
 library(openxlsx)
+library(readxl)
 library(srvyr)
 library(data.table)
 library(magrittr)
@@ -86,6 +87,26 @@ fill_NA_mode <- function(vector){
     !is.na(vector), vector,
     ifelse(all(is.na(vector)), NA, Mode(vector, na.rm = T))
   )
+}
+
+# Create a function to properly format inputs
+format_it <- function(var, r = 2, s = 2) {
+  format(round(var, r), nsmall = s, scientific = F)
+}
+
+# Create a function to put values in tables
+format_val <- function(var, star = "", r = 2, s = 2) {
+  str_c(" & ", format_it(var, r, s), star, " ")
+}
+
+# Create a function to put standard errors in tables
+format_se <- function(var, r = 2, s = 2) {
+  str_c(" & (", format_it(var, r, s), ") ")
+}
+
+# Create a function to put N obs in tables
+format_n <- function(n) {
+  str_c(" & {", format(n, big.mark = ",", trim = T), "} ")
 }
 
 # Create Match Between Datasets -------------------------------------------------------
@@ -372,7 +393,7 @@ Subset & Number \\\\ \\midrule
 
 for (i in seq_along(obs)){
   top <- str_c(top, labels[i], " & ", p_m[i],
-                format(obs[i], big.mark = ","), "\\\\ ", end[i])
+                format_n(obs[i]), "\\\\ ", end[i])
 }
 
 bot <- "\\bottomrule
@@ -399,19 +420,19 @@ Subset & Unmatched & Total & Percent Missing \\\\ \\midrule
 top_oj <- str_c(
   top_oj,
   str_c("On Jobs", 
-        format(oj_missed, big.mark = ","),
-        format(oj_obs, big.mark = ","),
-        round(oj_missed / oj_obs * 100, 0), sep = " & "),
+        format_n(oj_missed),
+        format_n(oj_obs),
+        format_val(oj_missed / oj_obs * 100, r = 0)),
   " \\\\ \n",
   str_c("On Jobs with Information",
-        format(oj_info_missed, big.mark = ","),
-        format(oj_info, big.mark = ","),
-        round(oj_info_missed / oj_info * 100, 0), sep = " & "),
+        format_n(oj_info_missed),
+        format_n(oj_info),
+        format_val(oj_info_missed / oj_info * 100, r = 0)),
   " \\\\ \n",
   str_c("On Jobs Outsourced",
-        format(oj_outsourced_missed, big.mark = ","),
-        format(oj_outsourced, big.mark = ","),
-        round(oj_outsourced_missed / oj_outsourced * 100, 0), sep = " & "),
+        format_n(oj_outsourced_missed),
+        format_n(oj_outsourced),
+        format_val(oj_outsourced_missed / oj_outsourced * 100, r = 0)),
   " \\\\ \n"
   )
 
@@ -448,13 +469,13 @@ Match Quality & Overall & Outsourced  \\\\ \\midrule
 
 for (i in seq_along(labels)){
   top_q <- str_c(top_q, labels[i],
-                " & ", format(m_q_table[[i]], big.mark = ","),
-                " & ", format(outsourced_m_q_table[[i]], big.mark = ","), "\\\\ \n")
+                format_n(m_q_table[[i]]),
+                format_n(outsourced_m_q_table[[i]]), "\\\\ \n")
 }
 
 top_q <- str_c(top_q, " \\midrule \n Total",
-                " & ", format(m_obs, big.mark = ","),
-                " & ", format(m_outsourced, big.mark = ","), "\\\\ \n")
+                format_n(m_obs),
+                format_n(m_outsourced), "\\\\ \n")
 
 bot_q <- "\\bottomrule
 \\end{tabular}
@@ -615,9 +636,6 @@ timeline <- timeline[working == 1 & (is.na(emp_id) | emp_id < 1000),
                        emp_id := nafill(emp_id, type = "locf"),
                        by = case_id]
 
-# Set age by birth year. Spread birth year to non-employed weeks first
-
-
 # Drop uneeded variables. Re-match weights so non-matched have weights too
 timeline <- timeline[, c(
   "max", "count", "non_na", "week_start_match", "week_end_match",
@@ -661,8 +679,7 @@ temp <- timeline %>%
   labs(x = "Year", y = "Observations") +
   theme_light(base_size = 16) 
 
-ggsave(str_c(figure_folder, "Observations.pdf"),
-       height = height, width = width)
+ggsave(str_c(figure_folder, "Observations.pdf"), height = height, width = width)
 
 timeline <- timeline[week <= week_max]
 
@@ -704,12 +721,31 @@ outsourcing_ind <- timeline %>%
             week_obs = unweighted(n()),
             outsourced_week_obs = unweighted(sum(outsourced)))
 
+# Want to match this data with occupation names for my own use.
+# Use census_occ/ind_2000_names from
+# https://www.census.gov/topics/employment/industry-occupation/guidance/code-lists.html
+# (Use 2002 excel sheets)
+occ_names <- read_excel(str_c(raw_folder, "census_occ_2000_names.xls")) %>% 
+  select(description = `Occupation Code List`, occ = `...3`) %>% 
+  mutate(occ = as.numeric(occ)) %>% 
+  filter(!is.na(occ))
+
+outsourcing_occ %<>% left_join(occ_names, by = "occ")
+
+ind_names <- read_excel(str_c(raw_folder, "census_ind_2000_names.xls")) %>% 
+  select(description = `American Community Survey`, ind = `...4`) %>% 
+  mutate(ind = as.numeric(ind)) %>% 
+  filter(!is.na(ind), !is.na(description))
+
+outsourcing_ind %<>% left_join(ind_names, by = "ind")
+
 # Create an excel file with all industries and occupations that are outsourced
-l <- list("Ind" = outsourcing_ind %>%
-            select(ind, week_obs, outsourced_week_obs, outsourced_per), 
-          "Occ" = outsourcing_occ %>% 
-            select(occ, week_obs, outsourced_week_obs, outsourced_per, 
-                   outsourced_wage_above_per))
+l <- list(
+  "Occ" = outsourcing_occ %>% 
+    select(occ, ho_occ, week_obs, outsourced_week_obs, outsourced_per, 
+           outsourced_wage_above_per, description),
+  "Ind" = outsourcing_ind %>%
+            select(ind, week_obs, outsourced_week_obs, outsourced_per, description))
 
 write.xlsx(l, file=str_c(table_folder, "ind_occ.xlsx"))
 
@@ -731,11 +767,13 @@ table <- str_c(
   \\begin{tabular}{lr}
   \\toprule
   Variable & Value \\\\ \\midrule
-  Occupations & ", outsourcing_occ_ss$occupations, "\\\\\n",
-  "Occupations with any Outsourcing & ", outsourcing_occ_ss$occupations_any, "\\\\\n",
-  "Occupations with 2$\\times$ Average Outsourcing & ",
-  outsourcing_occ_ss$ho_occ, "\\\\\n",
-  "Average Outsourcing & ", round(outsourcing_prevalence$outsourced_per, 3), "\\\\\n",
+  Occupations ", format_n(outsourcing_occ_ss$occupations), "\\\\\n",
+  "Occupations with any Outsourcing ", format_n(outsourcing_occ_ss$occupations_any),
+  "\\\\\n",
+  "Occupations with 2$\\times$ Average Outsourcing ",
+  format_n(outsourcing_occ_ss$ho_occ), "\\\\\n",
+  "Average Outsourcing ", format_val(outsourcing_prevalence$outsourced_per, r = 3),
+  "\\\\\n",
   "\\bottomrule
   \\end{tabular}
   \\caption{Outsourcing prevalence among workers and occupations}
