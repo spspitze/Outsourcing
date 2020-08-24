@@ -24,6 +24,7 @@ new_data[new_data == -3] = NA  # Invalid missing
 new_data[new_data == -4] = NA  # Valid missing 
 new_data[new_data == -5] = NA  # Non-interview 
 
+
 # Create a function that takes the NLSY's week data and rounds it
 # To the nearest date. Use the fact that the first week of
 # 2001 is 1201

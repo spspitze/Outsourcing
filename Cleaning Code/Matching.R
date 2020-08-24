@@ -54,11 +54,16 @@ emp_sup <- read_csv(str_c(clean_folder, "emp_sup_clean.csv"),
 
 # Get custom weights from raw_folder
 weights <- read_table2(str_c(raw_folder, "customweight.dat"),
-                       col_types = cols(.default = col_double()))
-# Rename weights.
-weights %<>%
+                       col_types = cols(.default = col_double())) %>% 
   rename(case_id = `1`,
          weight = `0`)
+
+# # Get custom weights from raw_folder (When only using 2012 and before)
+# weights <- read_table2(str_c(raw_folder, "customweight_less2012.dat"),
+#                        col_types = cols(.default = col_double())) %>% 
+#   rename(case_id = `1`,
+#         weight = `0`)
+
 
 # Demographics data
 demographics <- read_csv(str_c(clean_folder, "demographics_clean.csv"),
@@ -105,8 +110,8 @@ format_se <- function(var, r = 2, s = 2) {
 }
 
 # Create a function to put N obs in tables
-format_n <- function(n) {
-  str_c(" & {", format(n, big.mark = ",", trim = T), "} ")
+format_n <- function(n, front = "") {
+  str_c(" & {", front, format(n, big.mark = ",", trim = T), "} ")
 }
 
 # Create Match Between Datasets -------------------------------------------------------
@@ -282,7 +287,10 @@ matched <-
     # If match qualities disagree, set equal to lowest
     match_quality = 
       ifelse(!is.na(match_quality),
-             min(match_quality, na.rm = T), NA)
+             min(match_quality, na.rm = T), NA),
+    
+    # Record Max Tenure for each job
+    max_tenure = ifelse(max(tenure, na.rm = T) > 0, max(tenure, na.rm = T), 0)
   ) %>% 
   # Make sure there are unique case_id, int_year, emp_id matches
   group_by(int_year, add = T) %>%
@@ -347,7 +355,6 @@ outsourced_m_q_table <- table(
   factor(matched$match_quality[matched$outsourced == 1],
          levels = c("1", "2", "3", "4", "5", "6", "7", "8", "9")))
 
-  
 # Look at oj missed
 on_jobs_miss <- on_jobs %>%
   anti_join(matched, by = c("case_id", "int_year", "rank" = "job_oj"))
@@ -392,8 +399,7 @@ Subset & Number \\\\ \\midrule
 )
 
 for (i in seq_along(obs)){
-  top <- str_c(top, labels[i], " & ", p_m[i],
-                format_n(obs[i]), "\\\\ ", end[i])
+  top <- str_c(top, labels[i], format_n(obs[i],  p_m[i]), "\\\\ ", end[i])
 }
 
 bot <- "\\bottomrule
@@ -488,11 +494,14 @@ write.table(str_c(top_q, bot_q),
             str_c(table_folder, "NLSY79 Match Quality/Match Quality.tex"),
             quote=F, col.names=F, row.names=F, sep="")
 
+# What is match quality by int_year?
+mq_year <- matched %>% 
+  group_by(int_year) %>% 
+  count(match_quality) %>% 
+  pivot_wider(names_from = c(int_year), values_from = c(n))
+
 
 # Create Matched Jobs -----------------------------------------------------
-
-# Create max_tenure in matched jobs for timeline below
-matched %<>% mutate(max_tenure = tenure)
 
 # Variables to use mean, mode, max, and min 
 mean_vars <- c("hours_week", "tenure", "union", "log_real_hrly_wage",
@@ -528,13 +537,15 @@ matched_jobs <- list(.vars = lst(mean_vars, mode_vars, min_vars, max_vars),
                      .funs = lst(mean_na, find_mode, min_na, max_na)
                      ) %>% 
   pmap(~ matched %>% group_by(case_id, emp_id) %>% summarise_at(.x, .y)) %>% 
-  reduce(inner_join, by = c("case_id", "emp_id"))
+  reduce(inner_join, by = c("case_id", "emp_id")) %>% 
+  # Fix max_tenure -Inf as NA
+  mutate(max_tenure = ifelse(max_tenure >= 0, max_tenure, NA))
 
 # Drop uneeded variables
 matched <- matched %>% 
   select(-month_start_job, -month_end_job, -job, -job_oj, -month_start_job_oj,
          -month_end_job_oj, -looped, -match_flag_1, -match_flag_2,
-         -count, -looped, -max_tenure, -birth_year)
+         -count, -looped, -birth_year)
 
 # Remove uneeded data sets to free up memory
 rm("matches", "match_rhs", "on_jobs_miss", "ever_out_count", "match_list",
@@ -555,8 +566,25 @@ timeline <- fread(str_c(clean_folder, "timeline_clean.csv"),
                     Date = c("week")
                   ))
 
-# Create week_start/end_match to keep original data (don't match weights now)
-matched_jobs %<>% 
+# Merge demographic info + weights first
+demographics_merge <- demographics %>% 
+  group_by(case_id) %>% 
+  filter(int_year == min(int_year)) %>% 
+  select(case_id:birth_year, less_hs:educ_other) %>% 
+  select(-female)
+  
+# Merge demographic data into weights
+weights_t <- left_join(weights, demographics_merge, by = "case_id") %>% 
+  data.table()
+
+timeline <- weights_t[timeline, on = .(case_id == case_id)]
+timeline <- timeline[, `:=`(age = year(week) - birth_year, birth_year = NULL)]
+
+# Create week_start/end_match to keep original data
+temp_match <- matched_jobs %>% 
+  select(case_id, emp_id, hours_week, part_time, occ, ind, tenure, max_tenure,
+         week_start_job, week_end_job, log_real_wkly_wage, self_emp:traditional, 
+         any_benefits, health, retirement, union, ever_out_oj, ever_out_m) %>%
   mutate(week_start_match = week_start_job,
          week_end_match = week_end_job) %>% 
   data.table()
@@ -566,29 +594,55 @@ matched_jobs %<>%
 timeline <- timeline[female == 0, ]
 timeline <- timeline[, `:=`(week_match = week, female = NULL)]
 
-timeline <- matched_jobs[timeline,
+timeline <- temp_match[timeline,
                       on = .(case_id == case_id, 
                              week_start_match <= week_match,
                              week_end_match >= week_match), 
                       allow.cartesian = T]
 
-# Drop jobs held in same week. Keep jobs by largest/most
+rm(temp_match, weights_t, demographics, demographics_merge)
+
+# If emp_id is matched to a week but working is 0, set job characteristics 
+# to NA (esp emp_id and outsourced)
+timeline <- timeline[working == 0, 
+                     c("emp_id", "outsourced", "tenure", "log_real_wkly_wage",
+                       "log_real_hrly_wage", "hours_week", "part_time",
+                       "week_start_job", "week_end_job", "indep_con",
+                       "self_emp", "temp_work", "on_call", "traditional")
+                     := NA]
+
+# Some weeks have multiple jobs. Isolate these weeks and select 1 job
+# From this group. Rank by highest
 # 1. hours_week
 # 2. tenure
 # 3. log_real_wkly_wage
-# Be careful not to drop non-workers
-vars <- c("hours_week", "tenure", "log_real_wkly_wage")
+# 4. occ
+# Then remaining by lowest emp_id
+
+# This is all weeks with multiple jobs 
+timeline <- timeline[, obs := sum(!is.na(emp_id)), by = .(case_id, week)]
+timeline_week_conflict <- timeline[obs > 1]
+
+vars <- c("hours_week", "tenure", "log_real_wkly_wage", "occ")
 for (var in vars) {
-  timeline <- 
-    timeline[, `:=`(max = max(get(var), na.rm = T), non_na = sum(!is.na(get(var)))),
-             by = .(case_id, week)]
-  timeline <- timeline[(get(var) == max) %in% T | is.na(emp_id) | (non_na == 0)]
+  timeline_week_conflict <- 
+    timeline_week_conflict[, `:=`(max = max(get(var), na.rm = T),
+                                  non_na = sum(!is.na(get(var)))),
+                           by = .(case_id, week)]
+  timeline_week_conflict <- timeline_week_conflict[
+    (get(var) == max) %in% T | (non_na == 0)]
 }
 
 # If any remain, take lowest emp_id
-timeline <- 
-  timeline[, max := min(emp_id, na.rm = T), by = .(case_id, week)]
-timeline <- timeline[(emp_id == max) %in% T | is.na(emp_id)]
+timeline_week_conflict <- 
+  timeline_week_conflict[, max := min(emp_id, na.rm = T), by = .(case_id, week)]
+timeline_week_conflict <- timeline_week_conflict[(emp_id == max) %in% T] 
+timeline_week_conflict <- timeline_week_conflict[,c("max", "non_na") := NULL]
+                                                 
+# Merge back into main data set
+timeline <- bind_rows(timeline[obs <= 1], timeline_week_conflict) %>% 
+  select(-obs) %>% 
+  data.table()
 
 # # Check how many observations each week
 # timeline <- timeline[, count := .N, by = .(case_id, week)]
@@ -596,7 +650,7 @@ timeline <- timeline[(emp_id == max) %in% T | is.na(emp_id)]
 
 # Create w_tenure in timeline to tack tenure week by week
 # Try to account for fact that some jobs have already started with 
-# tenure by using max_tenure
+# tenure by using tenure
 timeline <- timeline[
   !is.na(emp_id),
   w_tenure := max_tenure + time_length(week - week_end_job, unit = "week")
@@ -618,61 +672,48 @@ timeline <- timeline[,c("emp_id_next", "emp_id_prev") := shift(.SD, c(-1,1)),
 
 # Mark start/end as week if prev/next working is 0 or NA or if emp_id prev/next exists
 timeline <- timeline[
-  (is.na(emp_id) & working == 1 
+  (is.na(emp_id) & (working == 1) 
    & (working_prev == 0 | is.na(working_prev) | !is.na(emp_id_prev))),
   week_start_job := week]
 
 timeline <- timeline[
-  (is.na(emp_id) & working == 1 
+  (is.na(emp_id) & (working == 1) 
    & (working_next == 0 | is.na(working_next) | !is.na(emp_id_next))),
   week_end_job := week]
 
 # Set the emp_id of these jobs as the rank of their start date
 # First set emp_id of week_start_job then fill in rest
-timeline <- timeline[is.na(emp_id) & !is.na(week_start_job),
+timeline <- timeline[is.na(emp_id) & !is.na(week_start_job) & (working != 0),
                      emp_id := rank(week_start_job), by = case_id]
 
 timeline <- timeline[working == 1 & (is.na(emp_id) | emp_id < 1000),
                        emp_id := nafill(emp_id, type = "locf"),
                        by = case_id]
 
-# Drop uneeded variables. Re-match weights so non-matched have weights too
+# Drop uneeded variables. 
 timeline <- timeline[, c(
-  "max", "count", "non_na", "week_start_match", "week_end_match",
-  "weight", "age", "birth_year", "max_tenure", "working_next", "working_prev",
+  "max", "non_na", "week_start_match", "week_end_match", "working_next", "working_prev",
   "emp_id_next", "emp_id_prev") := NULL]
-
-matched_jobs <- matched_jobs[, c("week_start_match",
-                                 "week_end_match") := NULL]
-
-# Add birth_year from demographics (to get age) with weights
-weights %<>% data.table()
-demographics %<>% 
-  select(case_id, birth_year) %>%
-  unique() %>% 
-  data.table()
-
-weights <- demographics[weights, on = .(case_id == case_id)]
-
-timeline <- weights[timeline, on = .(case_id == case_id)]
-
-timeline <- timeline[, `:=`(age = year(week) - birth_year, 
-                            birth_year = NULL)]
-
 
 # Plot Timeline -----------------------------------------------------------
 
 # Results noisy at end, so drop after max week, around end of 2016
 week_max <- round_date(ymd("2016-10-08"), "week")
 
+# # When using only surveys 2012 and before, use where tradional starts
+# # dropping as week_max
+# week_max <- round_date(ymd("2012-09-18"), "week")
+
 # Graph observations
 temp <- timeline %>% 
   group_by(week) %>% 
   summarise(working_obs = sum(working, na.rm = T), 
+            traditional_obs = sum(traditional, na.rm = T),
             non_working_obs = sum(1 - working, na.rm = T),
             unemp_obs = sum(unemployed, na.rm = T)) %>% 
   ggplot() +
   geom_line(aes(x = week, y = working_obs), color = "blue") +
+  geom_line(aes(x = week, y = traditional_obs), color = "green") +
   geom_line(aes(x = week, y = non_working_obs), color = "red") +
   geom_line(aes(x = week, y = unemp_obs), color = "purple") +
   geom_vline(xintercept = week_max) +
@@ -682,7 +723,6 @@ temp <- timeline %>%
 ggsave(str_c(figure_folder, "Observations.pdf"), height = height, width = width)
 
 timeline <- timeline[week <= week_max]
-
 
 # Outsourcing Prevalence --------------------------------------------------
 
@@ -791,6 +831,7 @@ write.table(table,
 
 # Integrate occupation data into main datasets
 matched %<>% data.table()
+matched_jobs %<>% data.table()
 
 outsourcing_occ %<>% 
   select(occ, outsourced_per, ho_occ, outsourced_wage_above_per) %>% 

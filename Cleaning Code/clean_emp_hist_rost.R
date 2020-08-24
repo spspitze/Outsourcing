@@ -286,5 +286,8 @@ long %<>%
   # Drop uneeded variables
   select(-job, -job_year, -hrly_wage, -wkly_wage, -cpi, -work_drop, -year_rank)
 
+# # Data from 2014 and 2016 interviews in on jobs are less reliable. Drop these years
+# long %<>% filter(int_year < 2014) 
+
 # Save the data
 fwrite(long, str_c(clean_folder, "emp_hist_rost_clean.csv"), row.names = FALSE)

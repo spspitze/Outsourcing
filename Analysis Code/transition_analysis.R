@@ -29,18 +29,18 @@ width <- height * aspect_ratio
 transition <- read.csv(str_c(clean_folder, "matched_transition.csv"))
 
 # Some figures calculated are useful for calbirating the model.
-# Use these to update model_parameters
-model_parameters <- read_csv(str_c(clean_folder, "model_parameters.csv"),
+# Use these to update data_moments
+data_moments <- read_csv(str_c(clean_folder, "data_moments.csv"),
                              col_types = cols(
                                variable = col_character(),
                                value = col_double()
                              ))
 
-# Create a function to update model_parameters given variable
+# Create a function to update data_moments given variable
 # with correct name
 update_parameters <- function(name, val) {
-  model_parameters$value[model_parameters$variable == name] <- val
-  model_parameters
+  data_moments$value[data_moments$variable == name] <- val
+  data_moments
 }
 
 # Create a function that finds difference of means or proportions and reports
@@ -254,7 +254,7 @@ transition_summary <- split_data(transition)
 
 for (i in 1:2) { 
   transition_summary[[i]] %<>%
-    filter(!is.na(outsourced_curr)) %>% 
+    filter(!is.na(outsourced_curr), (outsourced_curr == 1 | traditional_curr == 1)) %>% 
     as_survey_design(ids = case_id, weights=weight) %>%
     group_by(outsourced_curr) %>%
     mutate(n = n()) %>% 
@@ -276,7 +276,7 @@ top <- str_c(table_top, siunitx,
 "
 \\begin{tabular}{lSSSSSS}
 \\toprule
-& \\multicolumn{3}{c}{{Outsourced Currently}} & \\multicolumn{3}{c}{{Non-Outsourced Currently}} \\\\
+& \\multicolumn{3}{c}{{Outsourced Currently}} & \\multicolumn{3}{c}{{Traditional Currently}} \\\\
 & {Previous} & {Current} & {Next} & {Previous} & {Current} & {Next}  \\\\  \\midrule
 "
 )
@@ -428,7 +428,8 @@ for (ho in 1:2) {
 \\end{tabular}
 \\caption{Job statistics for men", occ_name,
     " at current and previous job for workers
-who are currently outsourced compared to those who are not. Observations are at the
+who are currently outsourced compared to those who are in traditional jobs.
+Observations are at the
 person-job level and summary statistics are weighted at the person level.
 Stars represent significant difference from
 current job (except for outsourced, same occupation, and same industry, which represent
@@ -514,6 +515,7 @@ for (ho in 1:2) {
       
     temp <- trans_plot[[ho]] %>%
       filter(!is.na(.[[var_g[i]]]), !is.na(outsourced_curr),
+             (outsourced_curr == 1 | traditional_curr == 1),
              .[[var_g[i]]] < quantile(.[[var_g[i]]], .99, na.rm = T)) %>% 
       ggplot(aes_string(var_g[i], fill = "factor(outsourced_curr)")) +
       geom_density(alpha = 0.2, bounds = c(i - 1, Inf)) +
@@ -533,51 +535,52 @@ for (ho in 1:2) {
   }
 }
 
-# Update model_parameters with median wj_prev (no job-job transitions)
+# Update data_moments with median wj_prev (no job-job transitions)
 # for all ever_ho_occ workers to any job
-median_weeks_to_job <- transition %>% 
-  filter(!is.na(outsourced_curr)) %>% 
+weeks_to_job_ss <- transition %>% 
+  filter(!is.na(outsourced_curr), (outsourced_curr == 1 | traditional_curr == 1)) %>% 
   as_survey_design(ids = case_id, weights=weight) %>% 
-  summarise(weeks_to_job = survey_median(weeks_job_prev, na.rm = T))
+  summarise(
+    median_wj_prev = survey_median(wj_prev, na.rm = T),
+    mean_wj_prev = survey_mean(wj_prev, na.rm = T))
 
-lam <- median_weeks_to_job$weeks_to_job[1]
-l <- 1 - .5 ^ (1 / (lam))
+WBJ <- weeks_to_job_ss$median_wj_prev[1]
+UE_2 <- 1 - .5 ^(1 / WBJ)
 
-model_parameters <- update_parameters("lam", lam)
-model_parameters <- update_parameters("l", l)
+# data_moments <- update_parameters("WeeksBetweenJobs", WBJ)
+# 
+# write_csv(data_moments, str_c(clean_folder, "data_moments.csv"))
 
-write_csv(model_parameters, str_c(clean_folder, "model_parameters.csv"))
-
-# Plot to see how reasonable this looks
-max_w <- 75
-plot <- trans_plot[[2]] %>%
-  filter(!is.na(weeks_job_prev), !is.na(outsourced_curr),
-         weeks_job_prev < max_w)
-
-weeks <- 0:max_w
-not_found <- 1 - (1 - l) ^ weeks
-# Turn not found into found pdf and adjust for population size
-found_pdf <- (not_found[2:length(weeks)] - not_found[1:(length(weeks) - 1)])
-found_hist <- found_pdf * NROW(plot)
-
-sim <- str_c("l = ", round(l, 3))
-temp <- ggplot() +
-  geom_density(aes(x = plot$weeks_job_prev, fill = "Data"),
-                 alpha = 0.2, bounds = c(0, max_w)) +
-  geom_point(aes(x = 1:max_w, y = found_pdf, color = sim), alpha = 1) +
-  labs(x = "Weeks to Find Job", y = "Count") +
-  scale_fill_manual(name = "Data", 
-                    values = c("blue"),
-                    labels = c("Data")) +
-  scale_color_manual(name = "Model",
-                     values = c("orange"),
-                     labels = c(sim) 
-                     ) +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
-  theme_light(base_size = 16)
-
-ggsave(str_c(figure_folder, "Weeks To Job Data vs Model.pdf"),
-       height = height, width = width)
+# # Plot to see how reasonable this looks
+# max_w <- 75
+# plot <- trans_plot[[2]] %>%
+#   filter(!is.na(wj_prev), !is.na(outsourced_curr),
+#          wj_prev < max_w)
+# 
+# weeks <- 0:max_w
+# not_found <- 1 - (1 - l) ^ weeks
+# # Turn not found into found pdf and adjust for population size
+# found_pdf <- (not_found[2:length(weeks)] - not_found[1:(length(weeks) - 1)])
+# found_hist <- found_pdf * NROW(plot)
+# 
+# sim <- str_c("l = ", round(l, 3))
+# temp <- ggplot() +
+#   geom_density(aes(x = plot$weeks_job_prev, fill = "Data"),
+#                  alpha = 0.2, bounds = c(0, max_w)) +
+#   geom_point(aes(x = 1:max_w, y = found_pdf, color = sim), alpha = 1) +
+#   labs(x = "Weeks to Find Job", y = "Count") +
+#   scale_fill_manual(name = "Data", 
+#                     values = c("blue"),
+#                     labels = c("Data")) +
+#   scale_color_manual(name = "Model",
+#                      values = c("orange"),
+#                      labels = c(sim) 
+#                      ) +
+#   scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+#   theme_light(base_size = 16)
+# 
+# ggsave(str_c(figure_folder, "Weeks To Job Data vs Model.pdf"),
+#        height = height, width = width)
 
 # Separate Job-Job Transitions --------------------------------------------
 
@@ -597,7 +600,7 @@ Variables & {Basic}  & {Job Info} & {Occ FE}   & {Basic} & {Job Info} & {Occ FE}
 "
 )
 
-# Type of current job (compare to traditional)
+# Type of job (compare to traditional)
 types <- c("outsourced", "self_emp", "indep_con", "temp_work", "on_call")
 
 # Demographic Controls

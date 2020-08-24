@@ -36,8 +36,23 @@ matched_jobs <- read_csv(str_c(clean_folder, "matched_jobs.csv"),
                            .default = col_double(),
                            week_start_job = col_date(format = ""),
                            week_end_job = col_date(format = "")
-                         ))%>% 
+                         )) %>% 
   filter(female == 0)
+
+# Some figures calculated are useful for calbirating the model.
+# Use these to update data_moments
+data_moments <- read_csv(str_c(clean_folder, "data_moments.csv"),
+                         col_types = cols(
+                           variable = col_character(),
+                           value = col_double()
+                         ))
+
+# Create a function to update data_moments given variable
+# with correct name
+update_parameters <- function(name, val) {
+  data_moments$value[data_moments$variable == name] <- val
+  data_moments
+}
 
 # Create a function that finds difference of means or proportions and reports
 # * if 10%, ** if 5%, and *** if 1% different
@@ -212,7 +227,7 @@ vars <- c("black", "hispanic", "less_hs", "hs", "aa", "ba", "plus_ba",
 sum_demo <- split_data(matched)
 
 for (i in 1:2) {
-  sum_demo[[i]] <- matched %>%
+  sum_demo[[i]] %<>%
     group_by(case_id) %>% 
     filter(row_number() == min(row_number())) %>% 
     as_survey_design(ids = case_id, weights = weight) %>% 
@@ -668,7 +683,7 @@ for (i in 1:4) {
 # Within Job Wage Distribution --------------------------------------------
 
 # Does the within job wage distribution (wage - starting wage) look
-# different for outsourced vs non-outsourced (for jobs with >=2 obs)
+# different for outsourced vs traditional (for jobs with >=2 obs)
 
 multi_year <- matched %>% 
   filter(!is.na(log_real_wkly_wage), !is.na(log_real_hrly_wage)) %>% 
@@ -680,26 +695,30 @@ multi_year <- matched %>%
     ) %>% 
   filter(rank > 1, rank <= 7, lrww_min_start > -2.5, lrww_min_start < 2.5)
 
-temp <- ggplot(multi_year) +
+temp <- multi_year %>% 
+  filter((outsourced == 1 | traditional == 1)) %>% 
+  ggplot() +
   geom_density(aes(lrww_min_start, fill = factor(outsourced)), alpha = 0.2) +
   labs(x = "Log Real Weekly Wages", y = "Density") +
   scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
-  scale_fill_manual(name = "Outsourced", breaks = c(0, 1),
+  scale_fill_manual(name = "Job Type", breaks = c(0, 1),
                     values = c("blue", "red"),
-                    labels = c("Not Outsourced", "Outsourced")) +
+                    labels = c("Traditional", "Outsourced")) +
   theme_light(base_size = 16) + 
   facet_wrap(~ rank)
   
 ggsave(str_c(figure_folder, "LRW Wage Compared to First Observation.pdf"),
        height = height, width = width)
 
-temp <- ggplot(multi_year %>% filter(ever_ho_occ == 1)) +
+temp <- multi_year %>% 
+  filter(ever_ho_occ == 1, (outsourced == 1 | traditional == 1)) %>% 
+  ggplot() +
   geom_density(aes(lrww_min_start, fill = factor(outsourced)), alpha = 0.2) +
   labs(x = "Log Real Weekly Wages", y = "Density") +
   scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
-  scale_fill_manual(name = "Outsourced", breaks = c(0, 1),
+  scale_fill_manual(name = "Job Type", breaks = c(0, 1),
                     values = c("blue", "red"),
-                    labels = c("Not Outsourced", "Outsourced")) +
+                    labels = c("Traditional", "Outsourced")) +
   theme_light(base_size = 16) + 
   facet_wrap(~ rank)
 
@@ -990,15 +1009,6 @@ rm("dt_js", "janitor", "job_type_sum", "life_jobs", "sg", "sum_demo",
 # 7. Add occ factors
 # 8. Add 6+7
 
-top <- str_c(table_top, siunitx, 
-             "
-\\begin{tabular}{lSSSSSS}
-\\toprule
-& \\multicolumn{2}{c}{{OLS}} & \\multicolumn{4}{c}{{Worker Fixed Effects}} \\\\
-& {Basic} & {Full}  & {Basic}  & {Tenure} & {Occ FE} & {Full}  \\\\\\midrule
-"
-)
-
 var_r <- c("log_real_hrly_wage", "log_real_wkly_wage", "job_sat",
            "any_benefits", "health")
 
@@ -1030,6 +1040,15 @@ dfs <- list(matched, matched_jobs)
 samples <- c("person-job-year", "person-job")
 s_labels <- c("_year", "_job")
 s_saves <- c("Years ", "Jobs ")
+
+top <- str_c(table_top, siunitx, 
+             "
+\\begin{tabular}{lSSSSSS}
+\\toprule
+& \\multicolumn{2}{c}{{OLS}} & \\multicolumn{4}{c}{{Worker Fixed Effects}} \\\\
+& {Basic} & {Full}  & {Basic}  & {Tenure} & {Occ FE} & {Full}  \\\\\\midrule
+"
+)
 
 for (loop in 1:2) {
   
@@ -1145,9 +1164,6 @@ for (loop in 1:2) {
   }
 }
 
-# Free up space for type
-rm("c_i")
-
 # How much does type matter? Run full regression but add types in groups
 # 1. Just outsourced vs not
 # 2. Separate self_emp and indep_con
@@ -1190,9 +1206,9 @@ for (loop in 1:2) {
     
     for (reg_ind in 1:3){
       
-      ind_vars <- c(controls)
+      ind_vars <- c(controls, tenure)
       fe_vars <- c(fixed_effects, "case_id", "occ")
-      fe_vars <- if (loop == 1) c(fe_vars, "int_year") else fe_vars
+      fe_vars <- if (loop == 1) c(fe_vars, "int_year") else c(fe_vars)
       
       hours_text <- "" 
       if (var != "log_real_wkly_wage"){
@@ -1210,7 +1226,7 @@ for (loop in 1:2) {
       fe <- create_formula("", fe_vars)
       
       # Run regression both for matched and matched_jobs
-      temp <- lm_robust(eq, data = matched, weights = weight,
+      temp <- lm_robust(eq, data = dfs[[loop]], weights = weight,
                         subset = !is.na(region) & !is.na(marital_status)
                         & !is.na(msa) & !is.na(occ),
                         fixed_effects = !!fe,
@@ -1253,9 +1269,9 @@ for (loop in 1:2) {
     bot <- str_c(
       "\\bottomrule
       \\end{tabular}
-      \\caption{Regressions of job type on ", var_name, ". Missing type is traditional
-      jobs. All regressions  use worker and occupation fixed effects and include
-      a quartic in age, union status,", hours_text, 
+      \\caption{Regressions of job type on ", var_name, ". Missing type in final row 
+      is traditional jobs. All regressions  use worker and occupation fixed effects and 
+      include a quartic in age and job tenure, union status,", hours_text, 
       " dummies for region", y, ", whether in an MSA or central city,
       marital status, and number of children in household and total.
       All observations are at the ", sample, " level and all standard errors are
@@ -1271,8 +1287,7 @@ for (loop in 1:2) {
                 quote=F, col.names=F, row.names=F, sep="")
     
     # Code sometimes very slow here. Maybe deleting some files will help
-    rm("temp", "eq", "fe", "center", "top", "bot",
-       "ou", "se", "ic", "oc", "tw")
+    rm("temp", "eq", "fe", "center", "ou", "se", "ic", "oc", "tw")
     
   }
 }
@@ -1280,13 +1295,13 @@ for (loop in 1:2) {
 
 # Plots -------------------------------------------------------------------
 
-# # Use ggplot 2 to graph some things
-# Graph some variables by year for outsourced vs not
+# Use ggplot2 to graph some things
+# Graph some variables by year for outsourced vs traditional
 # Both all workers and ever_ho_occ
 
 # Also plot log_real_hrly/wkly_wage residuals 
 # from full FE regression about (but without outsourcing)
-# See how these compare for outsourced vs non-outsourced
+# See how these compare for outsourced vs traditional
 
 # Create filter_ever which filters by ever_ho_occ if condition is T
 filter_ever <- function(df, condition) {
@@ -1304,10 +1319,14 @@ var_names <- c("Log Real Hourly Wage", "Log Real Weekly Wage",
 
 var_saves <- c("LRH Wage", "LRW Wage", "Hours", "Tenure")
 
+types <- c("self_emp", "indep_con", "temp_work", "on_call")
+
 controls <- c("age", "I((age)^2)", "I((age)^3)", "I((age)^4)",
               "tot_child", "hh_child", "factor(union_fill)")
 
 hours <- c("hours_week", "part_time")
+
+ols_controls <- c("black", "hispanic", "hs", "aa", "ba", "plus_ba")
 
 tenure <- c("I((tenure/100))", "I((tenure/100)^2)", "I((tenure/100)^3)",
             "I((tenure/100)^4)")
@@ -1332,9 +1351,9 @@ for (ob in 1:2) {
     # Run regressions with full data. 
     if (i <= 2) {
       
-      ind_vars <- c(controls, tenure)
+      ind_vars <- c(controls, tenure, types)
       
-      if (var_g[i] != "log_week_earn"){
+      if (var_g[i] != "log_real_wkly_wage"){
         ind_vars %<>% c(hours)
       }
       
@@ -1347,7 +1366,8 @@ for (ob in 1:2) {
       eq <- create_formula(var_g[i], ind_vars)
       fe <- create_formula("~", fe_vars)
       
-      reg <- lm_robust(eq, data = dfs[[ob]],
+      k <- if (ob == 1) 1 else 3
+      reg <- lm_robust(eq, data = dfs[[k]],
                        subset = !is.na(region) & !is.na(marital_status) &
                          !is.na(msa) & !is.na(occ),
                        weights = weight,
@@ -1362,13 +1382,13 @@ for (ob in 1:2) {
       
       # Plot raw figures
       temp <- dfs[[j]] %>%
-        filter(!is.na(.[[var_g[i]]])) %>%
+        filter(!is.na(.[[var_g[i]]]), (outsourced == 1 | traditional == 1)) %>%
         ggplot(aes_string(var_g[i], fill = "factor(outsourced)")) +
         geom_density(alpha = 0.2) +
         labs(x = var_names[i], y = "Density") +
-        scale_fill_manual(name = "Outsourced", breaks = c(0, 1),
+        scale_fill_manual(name = "Job Type", breaks = c(0, 1),
                           values = c("blue", "red"),
-                          labels = c("Not Outsourced", "Outsourced")) +
+                          labels = c("Traditional", "Outsourced")) +
         scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
         theme_light(base_size = 16) 
       
@@ -1380,7 +1400,6 @@ for (ob in 1:2) {
       # Also create a table of the standard deviation and skew of residuals
       # for both outsourced and not outsourced
       if (i <= 2) {
-        k <- if (ob == 1) 1 else 3
         df <- dfs[[k]] %>% 
           filter(!is.na(.[[var_g[i]]]), !is.na(tenure), 
                  !is.na(tot_child), !is.na(hh_child),
@@ -1388,8 +1407,12 @@ for (ob in 1:2) {
                  !is.na(msa), !is.na(occ)) %>% 
           mutate(residual = lm_residuals(reg)) %>% 
           filter_ever(ho == 2) %>% 
-          filter(residual != 0, residual >= - 3.5 * sd(residual),
-                 residual <= 3.5 * sd(residual))
+          filter((outsourced == 1 | traditional == 1))
+        
+        # Observations with unique case_ids/occupations have artificially 0 residuals
+        # Keep only people/occupations with mulitple observtions
+        df <- df[duplicated(df$case_id),]
+        df <- df[duplicated(df$occ),]
         
         df_sum <- df %>% 
           as_survey_design(id = case_id, weight = weight) %>% 
@@ -1421,30 +1444,100 @@ for (ob in 1:2) {
           ggplot(aes(residual, fill = factor(outsourced))) +
           geom_density(alpha = 0.2) +
           labs(x = str_c("Residual ", var_names[i]), y = "Density") +
-          scale_fill_manual(name = "Outsourced", breaks = c(0, 1),
+          scale_fill_manual(name = "Job Type", breaks = c(0, 1),
                             values = c("blue", "red"),
-                            labels = c("Not Outsourced", "Outsourced")) +
+                            labels = c("Traditional", "Outsourced")) +
           scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
           theme_light(base_size = 16) 
         
         ggsave(str_c(figure_folder, s_saves[ob], var_saves[i],
                      " Residuals", ho_saves[ho], ".pdf"),
                height = height, width = width)
-        
-        
+          
+        # If job -year ob == 2, log real wkly wage i == 2, and ho workers ho == 2
+        if (ob == 2 & i == 2 & ho == 2) {
+          # Update with mean lrw wage for both job types
+          # To do this, take overall mean wage (for all types, including discarded ones)
+          # Because this is what the regression was run on. Then take average 
+          # residual of each type and add together
+          # Recreate this df just to find mean wage of entire regression sample
+          df_mean <- dfs[[k]] %>% 
+            filter(!is.na(.[[var_g[i]]]), !is.na(tenure), 
+                   !is.na(tot_child), !is.na(hh_child),
+                   !is.na(union_fill), !is.na(region), !is.na(marital_status),
+                   !is.na(msa), !is.na(occ))
+          
+          w_bar_overall <- weighted.mean(df_mean$log_real_wkly_wage,
+                                         df_mean$weight,  na.rm = T)
+          
+          m_resid <- weighted.mean(df$residual[df$traditional == 1],
+                                   df$weight[df$traditional == 1], na.rm = T)
+          m_resid_o <- weighted.mean(df$residual[df$outsourced == 1],
+                                     df$weight[df$outsourced == 1], na.rm = T)
+          
+          w_bar <- w_bar_overall + m_resid
+          w_o_bar <- w_bar_overall + m_resid_o
+          
+          # Also find sd of resiuals for each type
+          var_resid <- (
+            sum(df$weight[df$traditional == 1] * 
+                  (df$residual[df$traditional == 1] - m_resid)^2) /
+              ((length(df$weight[df$traditional == 1] != 0) - 1) / 
+                 length(df$weight[df$traditional == 1] != 0)
+               * sum(df$weight[df$traditional == 1]))) 
+          w_sd <- sqrt(var_resid)
+          
+          var_resid_o <- (
+            sum(df$weight[df$outsourced == 1] * 
+                  (df$residual[df$outsourced == 1] - m_resid)^2) /
+              ((length(df$weight[df$outsourced == 1] != 0) - 1) / 
+                 length(df$weight[df$outsourced == 1] != 0)
+               * sum(df$weight[df$outsourced == 1]))) 
+          w_o_sd <- sqrt(var_resid_o)
+          
+          data_moments <- update_parameters("w_bar", w_bar)
+          data_moments <- update_parameters("w_o_bar", w_o_bar)
+          data_moments <- update_parameters("w_sd", w_sd)
+          data_moments <- update_parameters("w_o_sd", w_o_sd)
+          
+          # Plot ecdf
+          temp <- df %>% 
+            ggplot(aes(residual, color = factor(outsourced))) +
+            stat_ecdf(geom = "line") +
+            labs(x = str_c("Residual ", var_names[i]), y = "CDF") +
+            scale_color_manual(name = "Job Type", breaks = c(0, 1),
+                              values = c("blue", "red"),
+                              labels = c("Traditional", "Outsourced")) +
+            theme_light(base_size = 16) 
+          
+          ggsave(str_c(figure_folder, s_saves[ob], var_saves[i],
+                       " Residual CDF", ho_saves[ho], ".pdf"),
+                 height = height, width = width)
+            
+          # Save this data set, rename x as wage and add w/w_o bar to 
+          # revolve around mean wage overall. Rename y as cdf, group as outsourced
+          # discard rest
+          ecdf <- ggplot_build(temp)$data[[1]] %>% 
+            filter(x > -10, x < 10) %>% # filter out -Inf and Inf 
+            rename(density = y) %>% 
+            mutate(wage = w_bar_overall + x,
+                   outsourced = group - 1) %>% 
+            select(outsourced, wage, density)
+          }
+        }
       }
       
       # Also plot job_sat as a density histogram (only do this once)
       if (i == 1) {
         temp <- dfs[[j]] %>%
-          filter(!is.na(job_sat)) %>%
+          filter(!is.na(job_sat), (outsourced == 1 | traditional == 1)) %>%
           ggplot(aes(round(job_sat, 0), fill = factor(outsourced))) +
           geom_histogram(aes(y=.5*..density..), alpha=0.5, position="dodge",
                          binwidth = .5) +
           labs(x = "Job Satisfaction", y = "Density") +
-          scale_fill_manual(name = "Outsourced", breaks = c(0, 1),
+          scale_fill_manual(name = "Job Type", breaks = c(0, 1),
                             values = c("blue", "red"),
-                            labels = c("Not Outsourced", "Outsourced")) +
+                            labels = c("Traditional", "Outsourced")) +
           scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
           theme_light(base_size = 16) 
         
@@ -1454,7 +1547,10 @@ for (ob in 1:2) {
       }
     }
   }
-}
+
+
+write_csv(data_moments, str_c(clean_folder, "data_moments.csv"))
+write_csv(ecdf, str_c(clean_folder, "data_ecdf.csv"))
 
 # For regressions, create a table of residual's variance and skew
 top <- str_c(table_top, "\\setlength{\\tabcolsep}{0.175em} \n", siunitx, 
@@ -1503,12 +1599,12 @@ write.table(str_c(top, center, bot),
             quote=F, col.names=F, row.names=F, sep="")
 
 
-# Look at log real hrly wages in matched_jobs for non-outsourced 
+# Look at log real hrly wages in matched_jobs for traditional
 # ho_occ vs not. Also run a full regression (minus occ fe) 
 # and compare residuals
 
 temp <- matched_jobs %>% 
-  filter(!is.na(log_real_wkly_wage), !is.na(ho_occ), outsourced == 0) %>% 
+  filter(!is.na(log_real_wkly_wage), !is.na(ho_occ), traditional == 1) %>% 
   ggplot(aes(log_real_wkly_wage, fill = factor(ho_occ))) +
   geom_density(alpha = 0.2) +
   labs(x = "Log Real Weekly Wage", y = "Density") +
@@ -1518,10 +1614,10 @@ temp <- matched_jobs %>%
   scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
   theme_light(base_size = 16) 
 
-ggsave(str_c(figure_folder, "Jobs LRW Wage Non-Outsourced HO Occ v Not.pdf"),
+ggsave(str_c(figure_folder, "Jobs LRW Wage Traditional HO Occ v Not.pdf"),
        height = height, width = width)
 
-eq <- create_formula("log_real_wkly_wage", c(controls, tenure))
+eq <- create_formula("log_real_wkly_wage", c(controls, tenure, "outsourced", types))
 fe <- create_formula("~", c("region", "marital_status", "msa", "case_id"))
 
 reg <- lm_robust(eq, matched_jobs,
@@ -1539,7 +1635,7 @@ df <- matched_jobs %>%
          !is.na(msa), !is.na(ho_occ)) %>% 
   mutate(residual = lm_residuals(reg)) %>% 
   filter(residual != 0, residual >= - 3.5 * sd(residual),
-         residual <= 3.5 * sd(residual), outsourced == 0)
+         residual <= 3.5 * sd(residual), traditional == 1)
 
 df_sum <- df %>% 
   as_survey_design(id = case_id, weight = weight) %>% 
@@ -1563,5 +1659,5 @@ temp <- df %>%
   scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
   theme_light(base_size = 16) 
 
-ggsave(str_c(figure_folder, "Jobs LRW Wage Residuals Non-Outsourced HO Occ v Not.pdf"),
+ggsave(str_c(figure_folder, "Jobs LRW Wage Residuals Traditional HO Occ v Not.pdf"),
        height = height, width = width)

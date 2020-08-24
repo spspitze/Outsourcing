@@ -1014,7 +1014,8 @@ names(new_data) <- c(
 
 
 # This is data downloaded from errata
-new_data_2 <- read_table2(str_c(raw_folder, "errata.dat"))
+new_data_2 <- read_table2(str_c(raw_folder, "errata.dat"),  
+                          col_types = cols(.default = col_double()))
 names(new_data_2) <- c(
   "CASEID_1979",
   "Q6-8E_1A.01.01_2002",
@@ -1444,6 +1445,9 @@ long %<>%
   ) %>% 
   select(-job, -most_job, -pre_trad, -num_types, -current_job,
          -tot_current, -rank_date, -row_num)
+
+# # Data from 2014 and 2016 interviews in on jobs are less reliable. Drop these years
+# long %<>% filter(int_year < 2014) 
 
 # Save the data
 write_csv(long, str_c(clean_folder, "on_jobs_clean.csv"))

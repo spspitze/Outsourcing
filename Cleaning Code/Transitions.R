@@ -58,7 +58,7 @@ match <- match[, `:=`(rank = first_rank, first_rank = NULL, last_rank = NULL)]
 match <- match[, `:=`(rank_prev = rank - 1, rank_next = rank + 1)]
 
 transition <- first_last[first == 1][, c(
-  "week", "working", "unemployed", "first", "last", "w_tenure"):=NULL]
+  "week", "working", "unemployed", "first", "last", "w_tenure") := NULL]
 
 setkey(match, case_id, emp_id)
 setkey(transition, case_id, emp_id)
@@ -82,10 +82,10 @@ transition %<>%
   ) %>% 
   # select and rename some variables
   select(-starts_with("female"), -starts_with("rank"),
-         sample_id_next, sample_id_prev, 
-         black_next, black_prev, hispanic_next, hispanic_prev, 
-         weight_next, weight_prev, ever_out_m_next, ever_out_m_prev,
-         ever_out_oj_next, ever_out_oj_prev, ever_ho_occ_next, ever_ho_occ_prev) %>% 
+         -sample_id_next, -sample_id_prev, 
+         -black_next, -black_prev, -hispanic_next, -hispanic_prev, 
+         -weight_next, -weight_prev, -ever_out_m_next, -ever_out_m_prev,
+         -ever_out_oj_next, -ever_out_oj_prev, -ever_ho_occ_next, -ever_ho_occ_prev) %>% 
   rename(
     sample_id = sample_id_curr,
     black = black_curr,

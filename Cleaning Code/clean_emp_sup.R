@@ -666,5 +666,8 @@ long %<>%
   mutate_at(vars_fill, fill_NA_mean) %>% 
   ungroup() 
 
+# # Data from 2014 and 2016 interviews in on jobs are less reliable. Drop these years
+# long %<>% filter(int_year < 2014) 
+
 # Save the data
 write_csv(long, str_c(clean_folder, "emp_sup_clean.csv"))

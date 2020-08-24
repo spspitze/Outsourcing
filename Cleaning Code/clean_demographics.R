@@ -224,5 +224,8 @@ long %<>%
   ungroup() %>% 
   select(-educ)
 
+# # Data from 2014 and 2016 interviews in on jobs are less reliable. Drop these years
+# long %<>% filter(int_year < 2014) 
+
 # Save the data
 write_csv(long, str_c(clean_folder, "demographics_clean.csv"))
