@@ -23,7 +23,9 @@ library(tidyverse)
 raw_folder <- "../Raw Data/"
 clean_folder <- "../Cleaned Data/"
 table_folder <- "../Tables/"
-figure_folder <- "../Figures/NLSY 79 Timeline/"
+figure_folder <- "../Figures/NLSY 79 Matching/"
+d_table_folder <- "../Drafts/Draft Tables/"
+s_table_folder <- "../Slides/Slide Tables/"
 
 # Create a default table_top
 table_top <- "\\documentclass[12pt]{article}
@@ -31,7 +33,24 @@ table_top <- "\\documentclass[12pt]{article}
 \\usepackage{booktabs}
 \\begin{document}
 \\begin{table}
-\\centering"
+\\centering
+\\resizebox{\\textwidth}{!}{ \n"
+
+# Create a default top for Draft tables (no resizebox, sometimes use it for Slides)
+d_table_top <- "\\begin{table}[h!]
+\\centering 
+{ \n"
+
+# Create a default top for Slide tables (but sometimes use it for Drafts)
+s_table_top <- "\\begin{table}[h!]
+\\centering 
+\\resizebox{\\textwidth}{!}{ \n"
+
+# Create a default bottom for Slide tables (no details)
+s_bot <- "\\bottomrule
+\\end{tabular}
+}
+\\end{table}"
 
 # For saving graphs
 aspect_ratio <- 1.62
@@ -391,40 +410,48 @@ p_m <- c("", "+", "+", "", "-", "-", "-", "")
 
 end <- c("\n", "\n", "\\midrule \n", "\\midrule \n", "\n", "\n", "\\midrule \n", "\n")
 
-top <- str_c(table_top,
-"\\begin{tabular}{lr}
+table <- "\\begin{tabular}{lr}
 \\toprule
 Subset & Number \\\\ \\midrule
 "
-)
 
 for (i in seq_along(obs)){
-  top <- str_c(top, labels[i], format_n(obs[i],  p_m[i]), "\\\\ ", end[i])
+  table <- str_c(table, labels[i], format_n(obs[i],  p_m[i]), "\\\\ ", end[i])
 }
 
 bot <- "\\bottomrule
 \\end{tabular}
+}
 \\caption{The matching process for the Employer History Roster/Employer Supplement
-and observations lost/gained step by step.}
+and number of person-interview-job observations lost/gained step by step.
+An observation is considered matched with On Jobs if it is matched in at least one
+Interview}
 \\label{match}
-\\end{table}
-\\end{document}"
+\\end{table}"
 
-write.table(str_c(top, bot),
+write.table(str_c(table_top, table, bot, "\n \\end{document}"),
             str_c(table_folder, "NLSY79 Match Quality/Match Steps.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+
+write.table(str_c(d_table_top, table, bot),
+            str_c(d_table_folder, "Match Steps.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Save table in Slide Tables
+write.table(str_c(s_table_top, table, s_bot),
+            str_c(s_table_folder, "Match Steps.tex"),
             quote=F, col.names=F, row.names=F, sep="")
 
 # Look at match quality for on jobs
 
-top_oj <- str_c(table_top, 
-"\\begin{tabular}{lrrr}
+table <- "\\begin{tabular}{lrrr}
 \\toprule
 Subset & Unmatched & Total & Percent Missing \\\\ \\midrule
 "
-)
 
-top_oj <- str_c(
-  top_oj,
+table <- str_c(
+  table,
   str_c("On Jobs", 
         format_n(oj_missed),
         format_n(oj_obs),
@@ -442,15 +469,36 @@ top_oj <- str_c(
   " \\\\ \n"
   )
 
+
 bot_oj <- "\\bottomrule
 \\end{tabular}
+}
 \\caption{The matching quality from On Jobs section.}
 \\label{oj_match}
 \\end{table}
 \\end{document}"
 
-write.table(str_c(top_oj, bot_oj),
+write.table(str_c(table_top, table, bot_oj),
             str_c(table_folder, "NLSY79 Match Quality/Match On Jobs.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Save for Drafts
+d_bot <- "\\bottomrule
+\\end{tabular}
+}
+\\caption{The matching quality from On Jobs section of final data set.
+Observations are at the person-interview-job level. Looks at total number unmatched,
+total unmatched with any job type information, and outsourced unmatched.}
+\\label{oj_match}
+\\end{table}"
+
+write.table(str_c(d_table_top, table, d_bot),
+            str_c(d_table_folder, "Match On Jobs.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Save for Slides
+write.table(str_c(s_table_top, table, s_bot),
+            str_c(s_table_folder, "Match On Jobs.tex"),
             quote=F, col.names=F, row.names=F, sep="")
 
 # Look at match quality in matched overall and for outsourced
@@ -465,33 +513,52 @@ labels <- c("1. Matched start date, end date, and rank",
             "8. Only unmatched job type in year",
             "9. Matched rank")
 
-top_q <- str_c(table_top, 
-"
-\\begin{tabular}{lrr}
+table <- "\\begin{tabular}{lrr}
 \\toprule
 Match Quality & Overall & Outsourced  \\\\ \\midrule
 "
-)
+
 
 for (i in seq_along(labels)){
-  top_q <- str_c(top_q, labels[i],
+  table <- str_c(table, labels[i],
                 format_n(m_q_table[[i]]),
                 format_n(outsourced_m_q_table[[i]]), "\\\\ \n")
 }
 
-top_q <- str_c(top_q, " \\midrule \n Total",
+table <- str_c(table, " \\midrule \n Total",
                 format_n(m_obs),
                 format_n(m_outsourced), "\\\\ \n")
 
+
 bot_q <- "\\bottomrule
 \\end{tabular}
+}
 \\caption{Match quality of final dataset.}
 \\label{match_quality}
 \\end{table}
 \\end{document}"
 
-write.table(str_c(top_q, bot_q),
+write.table(str_c(table_top, table, bot_q),
             str_c(table_folder, "NLSY79 Match Quality/Match Quality.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Save for Draft
+d_bot <- "\\bottomrule
+\\end{tabular}
+}
+\\caption{Match quality of final dataset. Observations are at the
+person-interview-job level. Match quality for each job is measured by the highest 
+quality match across interviews.}
+\\label{match_quality}
+\\end{table}"
+
+write.table(str_c(d_table_top, table, d_bot),
+            str_c(d_table_folder, "/Match Quality.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Save for Slides
+write.table(str_c(s_table_top, "\n \\small \n", table, s_bot),
+            str_c(s_table_folder, "/Match Quality.tex"),
             quote=F, col.names=F, row.names=F, sep="")
 
 # What is match quality by int_year?
@@ -525,11 +592,10 @@ mean_na <- function(vector) mean(vector, na.rm = T)
 min_na <- function(vector) min(vector, na.rm = T)
 max_na <- function(vector) max(vector, na.rm = T)
 
-# Create a variable that finds Mode. If multiple, takes min
+# Create a variable that finds Mode. If multiple, takes first observation
 find_mode <- function(vector) {
   temp <- Mode(vector, na.rm = T)[1]
-  ifelse(!is.na(temp), temp, 
-         ifelse(min(vector, na.rm = T) < 1e10, min(vector, na.rm = T), NA))
+  ifelse(!is.na(temp), temp, vector[[1]])
 }
 
 # Create matched_jobs which groups data by jobs
@@ -550,7 +616,7 @@ matched <- matched %>%
 # Remove uneeded data sets to free up memory
 rm("matches", "match_rhs", "on_jobs_miss", "ever_out_count", "match_list",
    "on_jobs", "ehr_es", "emp_sup", "hist_rost", 
-   "si", "om", "p_m", "top", "bot", "oj_info", "oj_info_missed", "oj_missed",
+   "si", "om", "p_m", "bot", "oj_info", "oj_info_missed", "oj_missed",
    "oj_obs", "m_q_table", "obs", "match_base", "labels", "end", "fill_mean",
    "bot_oj", "bot_q", "mean_vars", "mode_vars", "max_vars", "min_vars")
 
@@ -569,8 +635,9 @@ timeline <- fread(str_c(clean_folder, "timeline_clean.csv"),
 # Merge demographic info + weights first
 demographics_merge <- demographics %>% 
   group_by(case_id) %>% 
-  filter(int_year == min(int_year)) %>% 
-  select(case_id:birth_year, less_hs:educ_other) %>% 
+  filter(int_year == min(int_year),
+         female == 0) %>% 
+  select(case_id:birth_year, hh_child:tot_child, less_hs:educ_other) %>% 
   select(-female)
   
 # Merge demographic data into weights
@@ -582,9 +649,12 @@ timeline <- timeline[, `:=`(age = year(week) - birth_year, birth_year = NULL)]
 
 # Create week_start/end_match to keep original data
 temp_match <- matched_jobs %>% 
+  filter(female == 0) %>% 
   select(case_id, emp_id, hours_week, part_time, occ, ind, tenure, max_tenure,
-         week_start_job, week_end_job, log_real_wkly_wage, self_emp:traditional, 
-         any_benefits, health, retirement, union, ever_out_oj, ever_out_m) %>%
+         week_start_job, week_end_job, log_real_hrly_wage,
+         log_real_wkly_wage, self_emp:traditional, 
+         any_benefits, health, retirement, union, union_fill, job_sat,
+         ever_out_oj, ever_out_m) %>%
   mutate(week_start_match = week_start_job,
          week_end_match = week_end_job) %>% 
   data.table()
@@ -594,17 +664,46 @@ temp_match <- matched_jobs %>%
 timeline <- timeline[female == 0, ]
 timeline <- timeline[, `:=`(week_match = week, female = NULL)]
 
+# An aside, the main dataset connects to matched_jobs, so
+# job characteristics do not change over time (as in the model)
+# For robustness, also match to matched, so characteristics change
+# each interview (do this now)
+temp_match_r <- matched %>% 
+  filter(female == 0) %>% 
+  select(case_id, emp_id, int_year, hours_week, part_time, occ, ind, tenure, max_tenure,
+         week_start_job, week_end_job, log_real_hrly_wage,
+         log_real_wkly_wage, self_emp:traditional, 
+         any_benefits, health, retirement, union, union_fill, job_sat,
+         ever_out_oj, ever_out_m) %>%
+  mutate(week_start_match = week_start_job,
+         week_end_match = week_end_job) %>% 
+  data.table()
+
+timeline_r <- temp_match_r[timeline,
+                           on = .(case_id == case_id, 
+                                  week_start_match <= week_match,
+                                  week_end_match >= week_match), 
+                           allow.cartesian = T]
+
+# Back to main match
 timeline <- temp_match[timeline,
                       on = .(case_id == case_id, 
                              week_start_match <= week_match,
                              week_end_match >= week_match), 
                       allow.cartesian = T]
 
-rm(temp_match, weights_t, demographics, demographics_merge)
+rm(temp_match, temp_match_r, weights_t, demographics, demographics_merge)
 
 # If emp_id is matched to a week but working is 0, set job characteristics 
 # to NA (esp emp_id and outsourced)
 timeline <- timeline[working == 0, 
+                     c("emp_id", "outsourced", "tenure", "log_real_wkly_wage",
+                       "log_real_hrly_wage", "hours_week", "part_time",
+                       "week_start_job", "week_end_job", "indep_con",
+                       "self_emp", "temp_work", "on_call", "traditional")
+                     := NA]
+
+timeline_r <- timeline_r[working == 0, 
                      c("emp_id", "outsourced", "tenure", "log_real_wkly_wage",
                        "log_real_hrly_wage", "hours_week", "part_time",
                        "week_start_job", "week_end_job", "indep_con",
@@ -623,6 +722,9 @@ timeline <- timeline[working == 0,
 timeline <- timeline[, obs := sum(!is.na(emp_id)), by = .(case_id, week)]
 timeline_week_conflict <- timeline[obs > 1]
 
+timeline_r <- timeline_r[, obs := sum(!is.na(emp_id)), by = .(case_id, week)]
+timeline_week_conflict_r <- timeline_r[obs > 1]
+
 vars <- c("hours_week", "tenure", "log_real_wkly_wage", "occ")
 for (var in vars) {
   timeline_week_conflict <- 
@@ -631,6 +733,13 @@ for (var in vars) {
                            by = .(case_id, week)]
   timeline_week_conflict <- timeline_week_conflict[
     (get(var) == max) %in% T | (non_na == 0)]
+  
+  timeline_week_conflict_r <- 
+    timeline_week_conflict_r[, `:=`(max = max(get(var), na.rm = T),
+                                  non_na = sum(!is.na(get(var)))),
+                           by = .(case_id, week)]
+  timeline_week_conflict_r <- timeline_week_conflict_r[
+    (get(var) == max) %in% T | (non_na == 0)]
 }
 
 # If any remain, take lowest emp_id
@@ -638,9 +747,18 @@ timeline_week_conflict <-
   timeline_week_conflict[, max := min(emp_id, na.rm = T), by = .(case_id, week)]
 timeline_week_conflict <- timeline_week_conflict[(emp_id == max) %in% T] 
 timeline_week_conflict <- timeline_week_conflict[,c("max", "non_na") := NULL]
+
+timeline_week_conflict_r <- 
+  timeline_week_conflict_r[, max := min(emp_id, na.rm = T), by = .(case_id, week)]
+timeline_week_conflict_r <- timeline_week_conflict_r[(emp_id == max) %in% T] 
+timeline_week_conflict_r <- timeline_week_conflict_r[,c("max", "non_na") := NULL]
                                                  
 # Merge back into main data set
 timeline <- bind_rows(timeline[obs <= 1], timeline_week_conflict) %>% 
+  select(-obs) %>% 
+  data.table()
+
+timeline_r <- bind_rows(timeline_r[obs <= 1], timeline_week_conflict_r) %>% 
   select(-obs) %>% 
   data.table()
 
@@ -662,12 +780,30 @@ timeline <- timeline[
 # Set jobs "started" before 1979 to w_tenure = NA
 timeline <- timeline[week_start_job < ymd("1979-01-01"), w_tenure := NA]
 
+# Note, for matched, use tenure not max_tenure
+timeline_r <- timeline_r[
+  !is.na(emp_id),
+  w_tenure := tenure + time_length(week - week_end_job, unit = "week")
+  ]
+# If negative, assume weeks are correct
+timeline_r <- timeline_r[
+  w_tenure < 0, w_tenure := time_length(week - week_start_job, unit = "week")
+  ]
+# Set jobs "started" before 1979 to w_tenure = NA
+timeline_r <- timeline_r[week_start_job < ymd("1979-01-01"), w_tenure := NA]
+
 # Count working spells that aren't matched (NA == 0). Set these emp_ids
 # to their number, ie 1, 2, ... . Also mark start and end week
 timeline <- timeline[order(week)]
 timeline <- timeline[,c("working_next", "working_prev") := shift(.SD, c(-1,1)), 
                      by = case_id, .SDcols = "working"]
 timeline <- timeline[,c("emp_id_next", "emp_id_prev") := shift(.SD, c(-1,1)), 
+                     by = case_id, .SDcols = "emp_id"]
+
+timeline_r <- timeline_r[order(week)]
+timeline_r <- timeline_r[,c("working_next", "working_prev") := shift(.SD, c(-1,1)), 
+                     by = case_id, .SDcols = "working"]
+timeline_r <- timeline_r[,c("emp_id_next", "emp_id_prev") := shift(.SD, c(-1,1)), 
                      by = case_id, .SDcols = "emp_id"]
 
 # Mark start/end as week if prev/next working is 0 or NA or if emp_id prev/next exists
@@ -695,6 +831,10 @@ timeline <- timeline[, c(
   "max", "non_na", "week_start_match", "week_end_match", "working_next", "working_prev",
   "emp_id_next", "emp_id_prev") := NULL]
 
+timeline_r <- timeline_r[, c(
+  "max", "non_na", "week_start_match", "week_end_match", "working_next", "working_prev",
+  "emp_id_next", "emp_id_prev") := NULL]
+
 # Plot Timeline -----------------------------------------------------------
 
 # Results noisy at end, so drop after max week, around end of 2016
@@ -717,12 +857,19 @@ temp <- timeline %>%
   geom_line(aes(x = week, y = non_working_obs), color = "red") +
   geom_line(aes(x = week, y = unemp_obs), color = "purple") +
   geom_vline(xintercept = week_max) +
+  scale_color_manual(name = "Observations", breaks = c(0, 1, 2, 3),
+                    values = c("blue", "green", "red", "purple"),
+                    labels = c("Working", "Traditional",
+                               "Not Working", "Unemployed")) +
   labs(x = "Year", y = "Observations") +
+  scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
   theme_light(base_size = 16) 
 
 ggsave(str_c(figure_folder, "Observations.pdf"), height = height, width = width)
 
 timeline <- timeline[week <= week_max]
+
+timeline_r <- timeline_r[week <= week_max]
 
 # Outsourcing Prevalence --------------------------------------------------
 
@@ -798,32 +945,38 @@ outsourcing_occ_ss <- outsourcing_occ %>%
   )
 
 table <- str_c(
-  "\\documentclass[12pt]{article}
-  \\usepackage[margin=.5in]{geometry}
-  \\usepackage{booktabs}
-  \\begin{document}
-  \\begin{table}
-  \\centering 
-  \\begin{tabular}{lr}
+  "\\begin{tabular}{lr}
   \\toprule
   Variable & Value \\\\ \\midrule
   Occupations ", format_n(outsourcing_occ_ss$occupations), "\\\\\n",
+  "Percent of Workers Outsourced ", format_val(outsourcing_prevalence$outsourced_per, r = 2),
+  "\\\\\n",
   "Occupations with any Outsourcing ", format_n(outsourcing_occ_ss$occupations_any),
   "\\\\\n",
-  "Occupations with 2$\\times$ Average Outsourcing ",
-  format_n(outsourcing_occ_ss$ho_occ), "\\\\\n",
-  "Average Outsourcing ", format_val(outsourcing_prevalence$outsourced_per, r = 3),
-  "\\\\\n",
-  "\\bottomrule
-  \\end{tabular}
-  \\caption{Outsourcing prevalence among workers and occupations}
-  \\label{outsourcing_occ}
-  \\end{table}
-  \\end{document}"
+  "Occupations with $\\geq$ 2$\\times$ Average Outsourcing ($\\geq$", 
+  round(2 * outsourcing_prevalence$outsourced_per, 2), "\\%) ",
+  format_n(outsourcing_occ_ss$ho_occ), "\\\\\n"
 )
 
-write.table(table,
+bot <- "\\bottomrule
+\\end{tabular}
+}
+\\caption{Outsourcing prevalence among occupations and workers.}
+\\label{outsourcing_occ}
+\\end{table}"
+
+write.table(str_c(table_top, table, bot, "\n \\end{document}"),
             str_c(table_folder, "NLSY79 Occupation Info/Occupation Outsourcing.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Make one for Drafts
+write.table(str_c(d_table_top, table, bot),
+            str_c(d_table_folder, "Occupation Outsourcing.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Make one for Slides
+write.table(str_c(s_table_top, table, s_bot),
+            str_c(s_table_folder, "Occupation Outsourcing.tex"),
             quote=F, col.names=F, row.names=F, sep="")
 
 
@@ -864,3 +1017,4 @@ timeline[order(case_id, week),
 fwrite(matched, str_c(clean_folder, "matched.csv"), row.names = FALSE)
 fwrite(matched_jobs, str_c(clean_folder, "matched_jobs.csv"), row.names = FALSE)
 fwrite(timeline, str_c(clean_folder, "matched_timeline.csv"), row.names = FALSE)
+fwrite(timeline_r, str_c(clean_folder, "matched_timeline_robust.csv"), row.names = FALSE)

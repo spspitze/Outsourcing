@@ -19,6 +19,8 @@ library(tidyverse)
 clean_folder <- "../Cleaned Data/"
 table_folder <- "../Tables/"
 figure_folder <- "../Figures/NLSY 79 Transition/"
+d_table_folder <- "../Drafts/Draft Tables/"
+s_table_folder <- "../Slides/Slide Tables/"
 
 # For saving graphs
 aspect_ratio <- 1.62
@@ -43,6 +45,24 @@ update_parameters <- function(name, val) {
   data_moments
 }
 
+# Create a function that takes regression p-values and reports
+# * if 10%, ** if 5%, and *** if 1% significant
+p_stars <- function(p){
+  if (p < .01){
+    stars <- "\\textsuperscript{***}"
+  } else if (p < .05){
+    stars <- "\\textsuperscript{**}"
+  } else if (p < .1){
+    stars <- "\\textsuperscript{*}"
+  } else{
+    stars <- ""
+  }
+  return(stars)
+}
+
+# Note: this is an older version of the code. It's not as elegant
+# but it is useful for transitions because it uses final figures
+# instead of raw data, which is useful when comparing variables from different columns
 # Create a function that finds difference of means or proportions and reports
 # * if 10%, ** if 5%, and *** if 1% different
 test <- function(data, var, obs, row_1, row_2, type) {
@@ -66,16 +86,7 @@ test <- function(data, var, obs, row_1, row_2, type) {
     return(warning("Not a valid test"))
   }
   
-  p <- test$p.value
-  if (p < .01) {
-    stars <- "\\textsuperscript{***}"
-  } else if (p < .05) {
-    stars <- "\\textsuperscript{**}"
-  } else if (p < .1) {
-    stars <- "\\textsuperscript{*}"
-  } else {
-    stars <- ""
-  }
+  p <- p_stars(test$p.value)
 }
 
 # Create a function that finds proportion test and reports
@@ -83,32 +94,7 @@ test <- function(data, var, obs, row_1, row_2, type) {
 p_test_1 <- function(data, var, obs, row){
   test <- prop.test(x = data[[var]][row] * data[[obs]][row],
                     n = data[[obs]][row], correct = FALSE)
-  p <- test$p.value
-  if (p < .01){
-    stars <- "\\textsuperscript{***}"
-  } else if (p < .05){
-    stars <- "\\textsuperscript{**}"
-  } else if (p < .1){
-    stars <- "\\textsuperscript{*}"
-  } else{
-    stars <- ""
-  }
-  return(stars)
-}
-
-# Create a function that takes regression p-values and reports
-# * if 10%, ** if 5%, and *** if 1% significant
-p_stars <- function(p){
-  if (p < .01){
-    stars <- "\\textsuperscript{***}"
-  } else if (p < .05){
-    stars <- "\\textsuperscript{**}"
-  } else if (p < .1){
-    stars <- "\\textsuperscript{*}"
-  } else{
-    stars <- ""
-  }
-  return(stars)
+  p_stars(test$p.value)
 }
 
 # Create a function that makes a formula given dependent variable 
@@ -179,7 +165,8 @@ table_top <- "\\documentclass[12pt]{article}
 \\begin{document}
 \\begin{table}
 \\footnotesize
-\\centering \n"
+\\centering 
+\\resizebox{\\textwidth}{!}{ \n"
 
 # If using siunitx, include this too
 siunitx <- "\\sisetup{
@@ -191,6 +178,22 @@ table-space-text-post = \\textsuperscript{***},
 table-align-text-post = false,
 group-digits          = false
 }"
+
+# Create a default top for Draft tables (no resizebox)
+d_table_top <- "\\begin{table}[h!]
+\\centering 
+{ \n"
+
+# Create a default top for Slide tables (but sometimes use it for Drafts)
+s_table_top <- "\\begin{table}[h!]
+\\centering 
+\\resizebox{\\textwidth}{!}{ \n"
+
+# Create a default bottom for Slide tables (no details)
+s_bot <- "\\bottomrule
+\\end{tabular}
+}
+\\end{table}"
 
 # Rename union_fill to make matching easier
 # Trim top 1% of time to find job
@@ -272,14 +275,18 @@ for (i in 1:2) {
     arrange(desc(outsourced_curr), desc(curr), desc(prev))
 }
 
-top <- str_c(table_top, siunitx, 
-"
-\\begin{tabular}{lSSSSSS}
+top <- "\\begin{tabular}{lSSSSSS}
 \\toprule
 & \\multicolumn{3}{c}{{Outsourced Currently}} & \\multicolumn{3}{c}{{Traditional Currently}} \\\\
 & {Previous} & {Current} & {Next} & {Previous} & {Current} & {Next}  \\\\  \\midrule
 "
-)
+
+# For Slides, use only previous and next
+s_top <- "\\begin{tabular}{lSSSS}
+\\toprule
+& \\multicolumn{2}{c}{{Outsourced Currently}} & \\multicolumn{2}{c}{{Traditional Currently}} \\\\
+& {Previous} & {Next} & {Previous} & {Next}  \\\\  \\midrule
+"
 
 # Create table in Latex
 vars_t <- c("log_real_hrly_wage", "log_real_wkly_wage", "hours_week", "part_time",
@@ -326,7 +333,7 @@ for (ho in 1:2) {
       ),
       rbind(
         str_c(" & {", format_it(1 * (out == 1), 3, 0), "}"),
-        str_c(" & {--} ")
+        str_c(" &  ")
       ),
       rbind(
         format_val(transition_summary[[ho]]$outsourced[i_n], 
@@ -342,16 +349,12 @@ for (ho in 1:2) {
       temp <- rbind(temp,
                     cbind(
                       rbind(
-                        format_val(transition_summary[[ho]][[var_n]][i_p],
-                                   star = p_test_1(transition_summary[[ho]],
-                                                   var_n, "n", i_p)),
+                        format_val(transition_summary[[ho]][[var_n]][i_p]),
                         format_se(transition_summary[[ho]][[se_n]][i_p])
                       ),
                       rbind(str_c(" &  {--} "), str_c(" & ")),
                       rbind(
-                        format_val(transition_summary[[ho]][[var_n]][i_n],
-                                   star = p_test_1(transition_summary[[ho]],
-                                                   var_n, "n", i_n)),
+                        format_val(transition_summary[[ho]][[var_n]][i_n]),
                         format_se(transition_summary[[ho]][[se_n]][i_n])
                       )
                     )
@@ -361,11 +364,7 @@ for (ho in 1:2) {
     # Now for everything else
     for (var in vars_t){
       se <- str_c(var, "se", sep = "_")
-      if (var %in% vars_t_p){
-        t <- "prop"
-      } else{
-        t <- "mean"
-      }
+      t <- if (var %in% vars_t_p) "prop" else "mean"
       p_star_p <- test(transition_summary[[ho]], var, "n", i, i_p, type = t)
       p_star_n <- test(transition_summary[[ho]], var, "n", i, i_n, type = t)
       temp %<>% rbind(
@@ -396,7 +395,7 @@ for (ho in 1:2) {
               format_val(transition_summary[[ho]]$jj[i_p]),
               format_se(transition_summary[[ho]]$jj_se[i_p], 3),
               " & "),
-            rbind(" & {--}", " & {--}", " & {--}", " & {--}", " & {--}", " & {--}",
+            rbind(" & {--}", " & ", " & {--}", " & ", " & {--}", " & ",
                   format_n(transition_summary[[ho]]$n[i])),
             rbind(
               format_val(transition_summary[[ho]]$weeks_job[i_n]),
@@ -423,20 +422,30 @@ for (ho in 1:2) {
     
   }
   
+  # Keep only certain rows/coumns for Slides
+  s_center <- center[c(1:6, 23:28), c(1:2, 4:5, 7:8)]
+  # Put observations back
+  s_center %<>% rbind(
+    cbind("Observations ",
+      str_c("& \\multicolumn{2}{c}{{",transition_summary[[ho]]$n[1], "}}"),
+          "", 
+          str_c("& \\multicolumn{2}{c}{{",transition_summary[[ho]]$n[4], "}}"),
+          "", "\\\\")
+  ) 
+  
   bot <- str_c(
     "\\bottomrule
 \\end{tabular}
-\\caption{Job statistics for men", occ_name,
+}
+\\caption{Job summary statistics for men", occ_name,
     " at current and previous job for workers
-who are currently outsourced compared to those who are in traditional jobs.
-Observations are at the
-person-job level and summary statistics are weighted at the person level.
-Stars represent significant difference from
-current job (except for outsourced, same occupation, and same industry, which represent
-significant difference from 0) at the .10 level *, .05 level **, and .01 level ***.}
+who are currently outsourced compared to those who are currently in traditional jobs.
+Observations are at the person-job level and summary statistics are weighted at 
+the person level. Stars represent significant difference from
+current job (except for outsourced which represents significant difference from 0)
+at the .10 level *, .05 level **, and .01 level ***.}
 \\label{jobs_t", occ_label ,"}
-\\end{table}
-\\end{document}"
+\\end{table}"
   )
   
   # Do weird stuff to create LaTeX output
@@ -447,11 +456,30 @@ significant difference from 0) at the .10 level *, .05 level **, and .01 level *
   write.table(center, file_1, quote=F, col.names=F, row.names=F, sep = "")
   center <- readChar(file_1, nchars = 1e6)
   
-  write.table(str_c(top, center, bot),
+  write.table(str_c(table_top, siunitx, top, center, bot, "\n \\end{document}"),
               str_c(table_folder,
                     "NLSY79 Job Transitions/Summary Statistics", Occ_name, ".tex"),
               quote=F, col.names=F, row.names=F, sep="")
   
+  # Save to Drafts (Use s_table top to resize)
+  write.table(str_c(s_table_top, top, center, bot),
+              str_c(d_table_folder,
+                    "Job Transition Summary Statistics.tex"),
+              quote=F, col.names=F, row.names=F, sep="")
+  
+  # Save to Slides
+  # Do weird stuff to create LaTeX output
+  t_folder <- str_c(table_folder, "Junk/")
+  file_1 <- str_c(t_folder, "center.txt")
+  write.table(s_center, file_1, quote=T, col.names=F, row.names=F)
+  s_center <- read.table(file_1, sep = "")
+  write.table(s_center, file_1, quote=F, col.names=F, row.names=F, sep = "")
+  s_center <- readChar(file_1, nchars = 1e6)
+  
+  write.table(str_c(s_table_top, s_top, s_center, s_bot),
+              str_c(s_table_folder,
+                    "Job Transition Summary Statistics.tex"),
+              quote=F, col.names=F, row.names=F, sep="")
 }
 
 # Weeks to Job ------------------------------------------------------------
@@ -460,14 +488,11 @@ significant difference from 0) at the .10 level *, .05 level **, and .01 level *
 # (transition_summary[[2]])
 
 # Plot mean 
-table <- str_c(table_top, siunitx, 
-"
-\\begin{tabular}{lSSSS}
+table <- "\\begin{tabular}{lSSSS}
 \\toprule
 & \\multicolumn{2}{c}{{All Transitions}} &  \\multicolumn{2}{c}{{$>1$ Week}} \\\\
 & {Outsourced} & {Not Outsourced} & {Outsourced} & {Not Outsourced} \\\\  \\midrule
 "
-)
 
 table %<>% str_c(
   format_val(transition_summary[[2]]$weeks_job[2]),
@@ -484,22 +509,28 @@ table %<>% str_c(
   format_se(transition_summary[[2]]$wj_se[5]),
   "\\\\ \n")
 
-table %<>% str_c(
-"\\bottomrule
+bot <- "\\bottomrule
 \\end{tabular}
+}
 \\caption{Mean weeks to find current job for workers in high outsourcing
 occupations both overall and for periods longer than 1 week. 
 Stars represent significant difference from outsourced jobs at 
 the .10 level *, .05 level **, and .01 level ***.}
 \\label{weeks_find_job}
-\\end{table}
-\\end{document}")
+\\end{table}"
 
-write.table(
-  table,
-  str_c(table_folder,
-        "NLSY79 Job Transitions/Weeks to Find Job HO Occupations.tex"),
+write.table(str_c(table_top, siunitx, table, bot, "\n \\end{document}"), 
+  str_c(table_folder, "NLSY79 Job Transitions/Weeks to Find Job HO Occupations.tex"),
   quote=F, col.names=F, row.names=F, sep="")
+
+# Save in Drafts and Slides
+write.table(str_c(d_table_top, table, bot), 
+            str_c(d_table_folder, "Weeks to Find Job HO Occupations.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+write.table(str_c(s_table_top, table, s_bot), 
+            str_c(s_table_folder, "Weeks to Find Job HO Occupations.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
 
 # Plot figures 
 var_g <- c("weeks_job_prev", "wj_prev")
@@ -544,8 +575,8 @@ weeks_to_job_ss <- transition %>%
     median_wj_prev = survey_median(wj_prev, na.rm = T),
     mean_wj_prev = survey_mean(wj_prev, na.rm = T))
 
-WBJ <- weeks_to_job_ss$median_wj_prev[1]
-UE_2 <- 1 - .5 ^(1 / WBJ)
+# WBJ <- weeks_to_job_ss$median_wj_prev[1]
+# UE_2 <- 1 - .5 ^(1 / WBJ)
 
 # data_moments <- update_parameters("WeeksBetweenJobs", WBJ)
 # 
@@ -591,14 +622,18 @@ UE_2 <- 1 - .5 ^(1 / WBJ)
 
 # Regression on Weeks to Jobs ---------------------------------------------
 
-top <- str_c(table_top, siunitx, 
-               "
-\\begin{tabular}{lSSSSSS}
+top <- "\\begin{tabular}{lSSSSSS}
 \\toprule
 &  \\multicolumn{3}{c}{{OLS}} & \\multicolumn{3}{c}{{FE}} \\\\
 Variables & {Basic}  & {Job Info} & {Occ FE}   & {Basic} & {Job Info} & {Occ FE} \\\\\\midrule
 "
-)
+
+# Create an s_top with just the final regression for both 
+# weeks to job and weeks to job == 1
+s_top <- "\\begin{tabular}{lSS}
+\\toprule
+Variables & {Weeks to Job}  & {Job-Job Transition} \\\\\\midrule
+"
 
 # Type of job (compare to traditional)
 types <- c("outsourced", "self_emp", "indep_con", "temp_work", "on_call")
@@ -640,125 +675,207 @@ worker_t <- c("No", "Yes")
 center <- rbind("Outsourced", "Current", "Outsourced", "Previous",
                   "Job Info", "Occupation FE", "Worker FE", "$R^2$", "Obs")
 
-for (j in 1:2){
-  for (i in 1:3) {
-    
-    vars <- var_list[[i]]
-    fes <- fixed_effects
-    
-    if (i == 3) {
-      fes %<>% append(occ_effects)
-    }
-    
-    if (j == 1) {
-      vars %<>% append(ols_controls)
-    } else {
-      fes %<>% append(id_effects)
-    }
-    
-    eq <- create_formula("weeks_job_prev", vars)
-    fe <- create_formula("", fes)
-    
-    temp <- lm_robust(
-      eq, data = transition, 
-      subset = (!is.na(marital_status_curr)
-                & !is.na(msa_curr) & !is.na(occ_curr) & !is.na(occ_prev)),
-      weights = weight,
-      fixed_effects = !!fe,
-      clusters = as_factor(sample_id),
-      se_type = "stata", try_cholesky = T)
-    
-    # Put regession results in Tables
-    center %<>% cbind(
-      rbind(format_val(temp$coefficients["outsourced_curr"],
-                       p_stars(temp$p.value["outsourced_curr"])),
-            format_se(temp$std.error["outsourced_curr"]),
-            format_val(temp$coefficients["outsourced_prev"],
-                       p_stars(temp$p.value["outsourced_prev"])),
-            format_se(temp$std.error["outsourced_prev"]),
-            str_c(" & {", job_t[i], "}"),
-            str_c(" & {", occ_t[i], "}"),
-            str_c(" & {", worker_t[j], "}"),
-            format_val(temp$r.squared),
-            format_n(lm_N(temp))
+vars <- c("weeks_job_prev", "I(weeks_job_prev == 1)")
+var_save <- c("Weeks to Find Job", "Job to Job Transition")
+labels <- c("_weeks_between_jobs", "_job_to_job")
+descriptions <- c("weeks to find current job",
+                  "probability of job to job transition")
+
+c_s <- c()
+
+for (k in 1:length(vars)) {
+
+  c_i <- c()
+  var <- vars[k]
+  save <- var_save[k]
+  label <- labels[k]
+  desc <- descriptions[k]
+  
+  for (j in 1:2){
+    for (i in 1:3) {
+      
+      controls <- var_list[[i]]
+      fes <- fixed_effects
+      
+      if (i == 3) {
+        fes %<>% append(occ_effects)
+      }
+      
+      if (j == 1) {
+        controls %<>% append(ols_controls)
+      } else {
+        fes %<>% append(id_effects)
+      }
+      
+      eq <- create_formula(var, controls)
+      fe <- create_formula("", fes)
+      
+      temp <- lm_robust(
+        eq, data = transition, 
+        subset = (!is.na(marital_status_curr)
+                  & !is.na(msa_curr) & !is.na(occ_curr) & !is.na(occ_prev)),
+        weights = weight,
+        fixed_effects = !!fe,
+        clusters = as_factor(sample_id),
+        se_type = "stata", try_cholesky = T)
+      
+      # Put regession results in Tables
+      c_i %<>% cbind(
+        rbind(format_val(temp$coefficients["outsourced_curr"],
+                         p_stars(temp$p.value["outsourced_curr"])),
+              format_se(temp$std.error["outsourced_curr"]),
+              format_val(temp$coefficients["outsourced_prev"],
+                         p_stars(temp$p.value["outsourced_prev"])),
+              format_se(temp$std.error["outsourced_prev"]),
+              str_c(" & {", job_t[i], "}"),
+              str_c(" & {", occ_t[i], "}"),
+              str_c(" & {", worker_t[j], "}"),
+              format_val(temp$r.squared),
+              format_n(lm_N(temp))
+        )
       )
-    )
-    
-    # If full regression, plot actual vs predicted weeks
-    if (i == 3 & j == 2) {
       
-      df <- tibble(est = temp$fitted.values, 
-                   act = model.frame(temp)$weeks_job_prev) 
-      
-      temp_plot <- df %>% 
-        filter(act < quantile(act, .99), act != est) %>% 
-        ggplot() +
-        geom_abline(slope = 1, intercept = 0, color = "blue") +
-        geom_jitter(aes(est, act)) +
-        labs(x = "Estimated Weeks to Find Job", y = "Actual Weeks to Find Job") +
-        theme_light(base_size = 16) 
-      
-      ggsave(str_c(figure_folder, "Weeks to Find Job Actual v Estimated.pdf"),
-             height = height, width = width)
-      
-      temp_plot <- df %>% 
-        filter(act < quantile(act, .99), act != est) %>% 
-        ggplot() +
-        geom_density(aes(est, fill = "red"), alpha = 0.2, show.legend = T) +
-        geom_density(aes(act, fill = "blue"), alpha = 0.2, show.legend = T) +
-        labs(x = "Weeks to Find Job", y = "Density") +
-        scale_fill_manual(name = "Weeks to\nFind Job", breaks = c("blue", "red"),
-                          values = c("blue", "red"),
-                          labels = c("Actual", "Estimated")) +
-        scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
-        theme_light(base_size = 16) 
-      
-      ggsave(str_c(figure_folder, 
-                   "Weeks to Find Job Actual v Estimated Distribution.pdf"),
-             height = height, width = width)
+      # If full regression, save to c_s
+      if (i == 3 & j == 2) {
+        
+        c_s %<>% cbind(
+          rbind(format_val(temp$coefficients["outsourced_curr"],
+                           p_stars(temp$p.value["outsourced_curr"])),
+                format_se(temp$std.error["outsourced_curr"]),
+                format_val(temp$coefficients["outsourced_prev"],
+                           p_stars(temp$p.value["outsourced_prev"])),
+                format_se(temp$std.error["outsourced_prev"]),
+                str_c(" & {", job_t[i], "}"),
+                str_c(" & {", occ_t[i], "}"),
+                str_c(" & {", worker_t[j], "}"),
+                format_val(temp$r.squared),
+                format_n(lm_N(temp))
+          )
+        )
+        
+        # If weeks_job_prev, see how well prediction does
+        if (var == "weeks_job_prev") {
+          df <- tibble(est = temp$fitted.values, 
+                       act = model.frame(temp)$weeks_job_prev) 
+          
+          temp_plot <- df %>% 
+            filter(act < quantile(act, .99), act != est) %>% 
+            ggplot() +
+            geom_abline(slope = 1, intercept = 0, color = "blue") +
+            geom_jitter(aes(est, act)) +
+            labs(x = "Estimated Weeks to Find Job", y = "Actual Weeks to Find Job") +
+            theme_light(base_size = 16) 
+          
+          ggsave(str_c(figure_folder, "Weeks to Find Job Actual v Estimated.pdf"),
+                 height = height, width = width)
+          
+          temp_plot <- df %>% 
+            filter(act < quantile(act, .99), act != est) %>% 
+            ggplot() +
+            geom_density(aes(est, fill = "red"), alpha = 0.2, show.legend = T) +
+            geom_density(aes(act, fill = "blue"), alpha = 0.2, show.legend = T) +
+            labs(x = "Weeks to Find Job", y = "Density") +
+            scale_fill_manual(name = "Weeks to\nFind Job", breaks = c("blue", "red"),
+                              values = c("blue", "red"),
+                              labels = c("Actual", "Estimated")) +
+            scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+            theme_light(base_size = 16) 
+          
+          ggsave(str_c(figure_folder, 
+                       "Weeks to Find Job Actual v Estimated Distribution.pdf"),
+                 height = height, width = width)
+        }
+      }
     }
-    
   }
+
+  t_center <- cbind(center, c_i, 
+    rbind("\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\[2pt]",
+          "\\\\[2pt]", "\\\\[2pt]", "\\\\[2pt]", "\\\\[2pt]")
+  )
+  
+  # Do weird stuff to create LaTeX output
+  r_folder <- str_c(table_folder, "Junk/")
+  file_1 <- str_c(r_folder, "center.txt")
+  write.table(t_center, file_1, quote=T, col.names=F, row.names=F)
+  t_center <- read.table(file_1, sep = "")
+  write.table(t_center, file_1, quote=F, col.names=F, row.names=F, sep = "")
+  t_center <- readChar(file_1, nchars = 1e6)
+  
+  bot <- str_c(
+    "\\bottomrule
+  \\end{tabular}
+  }
+  \\caption{Regressions of outsourced at current and previous job on 
+  ", desc, ". All regressions
+  include controls for current and previous job type (reported coefficients are 
+  compared to traditional jobs), a quartic in age, dummies for region,
+  whether in an MSA or central city, marital status, number of children total
+  and in household, and dummies for observation year. The first three columns 
+  run OLS and also contain controls for race and education. The last three columns
+  use worker fixed effects. Regression with job info contain current and previous
+  hours worked per week, part-time status, log real weekly wage, union status, and
+  whether received health insurance, retirement benefits, or any benefits. They also
+  contain a quartic of previous tenure. Regressions with occupation fixed effects
+  contain fixed effects for current and previous occupation.
+  All observations are at the person-job level and regressions are weighted
+  at the person level. All standard errors are clustered by demographic sampling group.
+  Stars represent significant at the .10 level *, .05 level **, and .01 level ***.}
+  \\label{reg", label, "}
+  \\end{table}"
+  )
+  
+  write.table(str_c(table_top, siunitx, top, t_center, bot, "\n \\end{document}"),
+              str_c(table_folder, 
+                    "NLSY79 Job Transitions/", save, " Regressions.tex"),
+              quote=F, col.names=F, row.names=F, sep="")
+  
+  # Save to Drafts (Use s_table_top to resize) 
+  write.table(str_c(s_table_top, top, t_center, bot),
+              str_c(d_table_folder, save, " Regressions.tex"),
+              quote=F, col.names=F, row.names=F, sep="")
+  
 }
 
-center %<>% cbind( 
-  rbind("\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\[2pt]",
-        "\\\\[2pt]", "\\\\[2pt]", "\\\\[2pt]", "\\\\[2pt]")
+# Save last regressions of both vars to Drafts and Slides
+
+s_center <- cbind(center, c_s, 
+                  rbind("\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\[2pt]",
+                        "\\\\[2pt]", "\\\\[2pt]", "\\\\[2pt]", "\\\\[2pt]")
 )
+
+bot <- "\\bottomrule
+  \\end{tabular}
+  }
+  \\caption{Regressions of outsourced at current and previous job on 
+  weeks to find current job and probability of job to job transition. They 
+  contain current and previous job varibales: job type (reported coefficients are 
+  compared to traditional jobs),  fixed effects for occupation, hours worked per week, 
+  part-time status, log real weekly wage, union status, and
+  whether received health insurance, retirement benefits, or any benefits. They also
+  contain a quartic of previous tenure. They contain demographic variables:
+  a quartic in age, dummies for region, whether in an MSA or central city,
+  marital status, number of children total  and in household, and dummies for
+  observation year.
+  All observations are at the person-job level and regressions are weighted
+  at the person level. All standard errors are clustered by demographic sampling group.
+  Stars represent significant at the .10 level *, .05 level **, and .01 level ***.}
+  \\label{reg_transition_comp}
+  \\end{table}"
 
 # Do weird stuff to create LaTeX output
 r_folder <- str_c(table_folder, "Junk/")
 file_1 <- str_c(r_folder, "center.txt")
-write.table(center, file_1, quote=T, col.names=F, row.names=F)
-center <- read.table(file_1, sep = "")
-write.table(center, file_1, quote=F, col.names=F, row.names=F, sep = "")
-center <- readChar(file_1, nchars = 1e6)
+write.table(s_center, file_1, quote=T, col.names=F, row.names=F)
+s_center <- read.table(file_1, sep = "")
+write.table(s_center, file_1, quote=F, col.names=F, row.names=F, sep = "")
+s_center <- readChar(file_1, nchars = 1e6)
 
-bot <- str_c(
-  "\\bottomrule
-\\end{tabular}
-\\caption{Regressions of outsourced at current and previous job on 
-weeks to find current job. All regressions
-include controls for current and previous job type (reported coefficients are 
-compared to traditional jobs), a quartic in age, dummies for region,
-whether in an MSA or central city, marital status, number of children total
-and in household, and dummies for observation year. The first three columns 
-run OLS and also contain controls for race and education. The last three columns
-use worker fixed effects. Regression with job info contain current and previous
-hours worked per week, part-time status, log real weekly wage, union status, and
-whether received health insurance, retirement benefits, or any benefits. They also
-contain a quartic of previous tenure. Regressions with occupation fixed effects
-contain fixed effects for current and previous occupation.
-All observations are at the person-job level and all standard errors are
-clustered by demographic sampling group.
-Stars represent significant at the .10 level *, .05 level **, and .01 level ***.}
-\\label{reg_weeks_between_jobs}
-\\end{table}
-\\end{document}"
-)
-
-write.table(str_c(top, center, bot),
-            str_c(table_folder, 
-                  "NLSY79 Job Transitions/Weeks to Find Job Regressions.tex"),
+write.table(str_c(d_table_top, s_top, s_center, bot),
+            str_c(d_table_folder, "Job Transition Regressions.tex"),
             quote=F, col.names=F, row.names=F, sep="")
-  
+
+# Too long for slide, don't resize
+write.table(str_c(d_table_top, s_top, s_center, s_bot),
+            str_c(s_table_folder, "Job Transition Regressions.tex"),
+            quote=F, col.names=F, row.names=F, sep="")

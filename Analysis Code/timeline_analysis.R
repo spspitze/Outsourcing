@@ -4,6 +4,7 @@
 rm(list = ls())
 
 # library(lpirfs)
+library(weights)
 library(magrittr)
 library(data.table)
 library(estimatr)
@@ -19,6 +20,8 @@ library(tidyverse)
 clean_folder <- "../Cleaned Data/"
 table_folder <- "../Tables/"
 figure_folder <- "../Figures/NLSY 79 Timeline/"
+d_table_folder <- "../Drafts/Draft Tables/"
+s_table_folder <- "../Slides/Slide Tables/"
 
 # For saving graphs
 aspect_ratio <- 1.62
@@ -65,59 +68,6 @@ update_parameters <- function(name, val) {
   data_moments
 }
 
-# Create a function that finds difference of means or proportions and reports
-# * if 10%, ** if 5%, and *** if 1% different
-test <- function(data, var, obs, row_1, row_2, type) {
-  if (type == "mean") {
-    test <- tsum.test(mean.x=data[[var]][row_1],
-                      s.x=data[[str_c(var, "_se")]][row_1] * sqrt(data[[obs]][row_1]),
-                      n.x=data[[obs]][row_1],
-                      mean.y=data[[var]][row_2],
-                      s.y=data[[str_c(var, "_se")]][row_2] * sqrt(data[[obs]][row_2]),
-                      n.y=data[[obs]][row_2])
-  } else if (type == "prop") {
-    # If value is 0, return ""
-    if (data[[var]][row_1] == 0 | data[[var]][row_2] == 0){
-      return("")
-    }
-    test <- prop.test(x = c(data[[var]][row_1] * data[[obs]][row_1], 
-                            data[[var]][row_2] * data[[obs]][row_2]),
-                      n = c(data[[obs]][row_1], data[[obs]][row_2]),
-                      correct = FALSE)
-  } else {
-    return(warning("Not a valid test"))
-  }
-  
-  p <- test$p.value
-  if (p < .01) {
-    stars <- "\\textsuperscript{***}"
-  } else if (p < .05) {
-    stars <- "\\textsuperscript{**}"
-  } else if (p < .1) {
-    stars <- "\\textsuperscript{*}"
-  } else {
-    stars <- ""
-  }
-}
-
-# Create a function that finds proportion test and reports
-# * if 10%, ** if 5%, and *** if 1% different
-p_test_1 <- function(data, var, obs, row){
-  test <- prop.test(x = data[[var]][row] * data[[obs]][row],
-                    n = data[[obs]][row], correct = FALSE)
-  p <- test$p.value
-  if (p < .01){
-    stars <- "\\textsuperscript{***}"
-  } else if (p < .05){
-    stars <- "\\textsuperscript{**}"
-  } else if (p < .1){
-    stars <- "\\textsuperscript{*}"
-  } else{
-    stars <- ""
-  }
-  return(stars)
-}
-
 # Create a function that takes regression p-values and reports
 # * if 10%, ** if 5%, and *** if 1% significant
 p_stars <- function(p){
@@ -131,6 +81,29 @@ p_stars <- function(p){
     stars <- ""
   }
   return(stars)
+}
+
+# Create a function that finds difference of means or proportions and reports
+# * if 10%, ** if 5%, and *** if 1% different
+# means uses cond, proportion uses var_2
+test <- function(data, var, weight, type, cond = T, cond_y = T, divider = NULL) {
+  if (type == "mean") {
+    data_x <- data[cond,]
+    data_y <- data[cond_y,]
+    outcome <- wtd.t.test(x=data_x[[var]], y=data_y[[var]],
+                          weight=data_x[[weight]],
+                          weighty=data_y[[weight]],
+                          samedata = FALSE)
+    p <- as.numeric(outcome$coefficients["p.value"])
+  } else if (type == "prop") {
+    # (round outcome to make sure it's 0/1 (useful when we sometimes time averages))
+    outcome <- wtd.chi.sq(round(data[[var]]), data[[divider]], weight = data[[weight]])
+    p <- outcome[["p.value"]]
+  } else {
+    return(warning("Not a valid test"))
+  }
+  
+  p_stars(p)
 }
 
 # Create a function that makes a formula given dependent variable 
@@ -200,8 +173,8 @@ table_top <- "\\documentclass[12pt]{article}
 \\usepackage{booktabs}
 \\begin{document}
 \\begin{table}
-\\footnotesize
-\\centering \n"
+\\centering 
+\\resizebox{\\textwidth}{!}{ \n"
 
 # If using siunitx, include this too
 siunitx <- "\\sisetup{
@@ -213,6 +186,22 @@ table-space-text-post = \\textsuperscript{***},
 table-align-text-post = false,
 group-digits          = false
 }"
+
+# Create a default top for Draft tables (no resizebox)
+d_table_top <- "\\begin{table}[h!]
+\\centering 
+{ \n"
+
+# Create a default top for Slide tables (but sometimes use it for Drafts)
+s_table_top <- "\\begin{table}[h!]
+\\centering 
+\\resizebox{\\textwidth}{!}{ \n"
+
+# Create a default bottom for Slide tables (no details)
+s_bot <- "\\bottomrule
+\\end{tabular}
+}
+\\end{table}"
 
 # # Create g_r for Great Recession between December 2007 to June 2009
 # timeline %<>%
@@ -488,7 +477,7 @@ rm("temp", "breaks", "labels", "colors", "filter_ages", "scale")
 # Create a table with average weekly charactersitcs
 # for each week by ever_ho_occ
 
-weekly_ss <- timeline %>%
+weekly <- timeline %>%
   as_survey_design(id = case_id, weight = weight) %>% 
   # Create new_job = 1 if w_tenure = 1 else NA
   mutate(new_job_o = ifelse(w_tenure == 1, 1, NA)) %>% 
@@ -500,7 +489,9 @@ weekly_ss <- timeline %>%
     new_outsourced = survey_mean(new_job_o * outsourced, na.rm = T),
     new_job = survey_mean(w_tenure == 1, na.rm = T),
     weight_w = unweighted(sum(weight) / 1000)
-  ) %>% 
+  ) 
+
+weekly_ss <- weekly %>% 
   as_survey_design(id = week, weight = weight_w) %>%
   group_by(ever_ho_occ) %>% 
   summarise(
@@ -522,12 +513,14 @@ table <- str_c(table_top, siunitx,
 )
 
 vars <- c("unemployed", "not_working", "outsourced", "new_outsourced")
-var_names <- c("Unemployed", "Disemployed", "Outsourced", "New Jobs Outsourced")
+var_names <- c("Unemployed", "Not Employed", "Outsourced", "New Jobs Outsourced")
 
 for (i in seq_along(vars)) {
   var <- vars[i]
   se <- str_c(var, "se", sep = "_")
-  stars <- test(weekly_ss, var, "n", 1, 2, "prop")
+  cond <- weekly$ever_ho_occ == 1
+  cond_y <- weekly$ever_ho_occ == 0
+  stars <- test(weekly, var, "weight_w", "mean", cond, cond_y, "ever_ho_occ")
   table %<>% str_c(
     var_names[i], 
     format_val(weekly_ss[[var]][1], r = 4, s = 4),
@@ -540,6 +533,7 @@ table %<>% str_c(
   "Observations", format_n(weekly_ss$n[1]), format_n(weekly_ss$n[2]), "\\\\ \n",
   "\\bottomrule
 \\end{tabular}
+}
 \\caption{Average weekly unemployment and disemployment rates based on
 if worker is ever employed in a high outsourcing occupation (HO Occ).
 Stars represent
@@ -839,6 +833,7 @@ format_val(MT_hired, r=0, s=0), "\\\\\n",
 format_val(MT_outsourced, r=0, s=0), "\\\\\n",
                "\\bottomrule
 \\end{tabular}
+}
 \\caption{Weekly worker flows using both overall flows and job tenure plus
 leading info from week after job ends. These theoretically should be the same.}
   \\label{timeline_flows}
@@ -846,9 +841,8 @@ leading info from week after job ends. These theoretically should be the same.}
   \\end{document}"
 )
 
-write.table(table,
-            str_c(table_folder,
-                  "NLSY79 Worker Flows/Worker Flows.tex"),
+write.table(table, str_c(table_folder,
+                         "NLSY79 Worker Flows/Worker Flows.tex"),
             quote=F, col.names=F, row.names=F, sep="")
 
 
@@ -919,9 +913,6 @@ occ_timeline <- timeline %>%
   group_by(occ) %>% 
   mutate(average_size = mean(workers_per)) %>% 
   ungroup()
-  
-# Save occ_timeline in cleaned_data to compare with cps data
-write_csv(occ_timeline, str_c(clean_folder, "occ_timeline.csv"))
 
 occ_corr <- occ_timeline %>% 
   group_by(occ) %>%
@@ -1113,6 +1104,7 @@ for (i in 1:3) {
 "
 \\bottomrule
 \\end{tabular}
+}
 \\caption{Mean correlation between an occupation's percent of all jobs and either
   percent of that occupation that is outsourced or wage level of non-outsourced
   and outsourced workers at the week level. High outsourcing 
@@ -1149,30 +1141,25 @@ outcome_names <- c("Log Real Weekly Wage", "Weeks Tenure", "Part-Time Status",
                    "Any Benefits")
 
 # Create a table with regression results, starting with workers_per
-top <- str_c(table_top, siunitx, 
-"
-\\begin{tabular}{lSS}
+top <- "\\begin{tabular}{lSSS}
 \\toprule
-Dependent Variable & {Outsourced Percent} & {Dependent Mean}   \\\\  \\midrule
+Dependent Variable & {Outsourced Percent} & {$R^2$} & {Observations}   \\\\  \\midrule
 "
-)
 
 eq <- create_formula("workers_per", controls)
 
 temp <- lm_robust(eq, data = occ_timeline, fixed_effects = !!fe,
                   clusters = occ, se_type = "stata", try_cholesky = T)
 
-t_mean <- mean(occ_timeline$workers_per, na.rm = T) 
-
 center <- rbind(
   cbind("Percent of Workers", 
         format_val(temp$coefficients["outsourced_per"], 
                    p_stars(temp$p.value["outsourced_per"]), r = 5, s = 5),
-        format_val(t_mean)
+        format_val(temp$r.squared), format_n(lm_N(temp))
         ),
   cbind("in Occupation",
         format_se(temp$std.error["outsourced_per"], r = 5, s = 5),
-        " & "
+        " & ", " & "
   )
   )
 
@@ -1183,11 +1170,11 @@ for (out in 0:1){
     if (i == 1) {
       if (out == 0) {
         center %<>% rbind(
-          cbind("Traditional Jobs", " & ", " & " )
+          cbind("\\textbf{Traditional Jobs}", " & ", " & ", " & " )
         )
       } else {
         center %<>% rbind(
-          cbind("Outsourced Jobs", " & ", " & " )
+          cbind("\\textbf{Outsourced Jobs}", " & ", " & ", " & " )
         )
       }
     }
@@ -1197,22 +1184,23 @@ for (out in 0:1){
     
     temp <- lm_robust(eq, data = occ_timeline, fixed_effects = !!fe,
                       clusters = occ, se_type = "stata", try_cholesky = T)
-      
-    t_mean <- mean(occ_timeline[[outcome]], na.rm = T) 
     
     center %<>% rbind(
       cbind(outcome_names[i], 
             format_val(temp$coefficients["outsourced_per"], 
                        p_stars(temp$p.value["outsourced_per"]), r = 4, s = 4),
-            format_val(t_mean)
+            format_val(temp$r.squared), format_n(lm_N(temp))
       ),
       cbind("",
             format_se(temp$std.error["outsourced_per"], r = 4, s = 4),
-            " &"
+            " & ", " & "
       )
     )
   }
 }
+
+# For slides, only keep certain rows
+s_center <- center[c(1:5, 12:13, 18:20, 27:28),]
 
 center %<>% cbind(
   rbind("\\\\", "\\\\[2pt] \\midrule", "\\\\[2pt]", "\\\\", "\\\\[2pt]", 
@@ -1224,21 +1212,27 @@ center %<>% cbind(
         )
 )
 
+s_center %<>% cbind(
+  rbind("\\\\", "\\\\[2pt] \\midrule", "\\\\[2pt]", "\\\\", "\\\\[2pt]", 
+        "\\\\",  "\\\\[2pt] \\midrule",
+        "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]"
+  )
+) 
+
+
 bot <- str_c(
 "\\bottomrule
 \\end{tabular}
-\\caption{Occupation level regressions of percent outsourced each week on
-average job characteristics. Each regression contains controls for percent 
+}
+\\caption{Occupation level regressions of percent outsourced within occupation
+each week on average job characteristics. Each regression contains controls for percent 
 in other alternative job types (ie. independent contractor, temp workers), percent
-Black, Hispanic, and union member, average age, and fixed effects
-at the occupation and week level. Outcomes include percent of jobs in the occupation
-and average job characteristics of non-outsourced and outsourced jobs.
+Black, Hispanic, and union member, average age, and occupation and week fixed effects.
 Regressions use robust standard errors clustered at the occupation level. 
 Stars represent
 significant difference from 0 at the .10 level *, .05 level **, and .01 level ***.}
 \\label{occ_corr_reg}
-\\end{table}
-\\end{document}"
+\\end{table}"
   )
 
 # Do weird stuff to create LaTeX output
@@ -1249,11 +1243,28 @@ center <- read.table(file_1, sep = "")
 write.table(center, file_1, quote=F, col.names=F, row.names=F, sep = "")
 center <- readChar(file_1, nchars = 1e6)
 
-write.table(str_c(top, center, bot),
+write.table(str_c(table_top, siunitx, top, center, bot, "\n \\end{document}"),
             str_c(table_folder,
                    "NLSY79 Occupation Info/Occupation Regressions.tex"),
             quote=F, col.names=F, row.names=F, sep="")
 
+# Save in Drafts
+write.table(str_c(d_table_top, top, center, bot),
+            str_c(d_table_folder, "NLSY79 Occupation Regressions.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Save in Slides
+# Do weird stuff to create LaTeX output
+t_folder <- str_c(table_folder, "Junk/")
+file_1 <- str_c(t_folder, "center.txt")
+write.table(s_center, file_1, quote=T, col.names=F, row.names=F)
+s_center <- read.table(file_1, sep = "")
+write.table(s_center, file_1, quote=F, col.names=F, row.names=F, sep = "")
+s_center <- readChar(file_1, nchars = 1e6)
+
+write.table(str_c(s_table_top, top, s_center, s_bot),
+            str_c(s_table_folder, "NLSY79 Occupation Regressions.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
 
 # Occupation Characteristics vs Outsourcing at Yearly Level ---------------
 
@@ -1263,7 +1274,6 @@ write.table(str_c(top, center, bot),
 occ_timeline_y <- timeline %>%
   # filter(year(week) <= 2012) %>% 
   filter(!is.na(occ), !is.na(outsourced)) %>%
-  filter(year > 2000) %>% 
   group_by(year, occ, outsourced, self_emp, indep_con, temp_work, on_call) %>%
   summarise(
     ho_occ = mean(ho_occ),
@@ -1344,9 +1354,9 @@ outcome_names <- c("Log Real Weekly Wage", "Weeks Tenure", "Part-Time Status",
 # Create a table with regression results, starting with workers_per
 top <- str_c(table_top, siunitx, 
              "
-\\begin{tabular}{lSS}
+\\begin{tabular}{lSSS}
 \\toprule
-Dependent Variable & {Outsourced Percent} & {Dependent Mean}   \\\\  \\midrule
+Dependent Variable & {Outsourced Percent} & {$R^2$} & {Observations}   \\\\  \\midrule
 "
 )
 
@@ -1355,17 +1365,15 @@ eq <- create_formula("workers_per", controls)
 temp <- lm_robust(eq, data = occ_timeline_y, fixed_effects = !!fe,
                   clusters = occ, se_type = "stata", try_cholesky = T)
 
-t_mean <- mean(occ_timeline_y$workers_per, na.rm = T) 
-
 center <- rbind(
   cbind("Percent of Workers", 
         format_val(temp$coefficients["outsourced_per"], 
                    p_stars(temp$p.value["outsourced_per"]), r = 5, s = 5),
-        format_val(t_mean)
+        format_val(temp$r.squared), format_n(lm_N(temp))
   ),
   cbind("in Occupation",
         format_se(temp$std.error["outsourced_per"], r = 5, s = 5),
-        " & "
+        " & ", " & "
   )
 )
 
@@ -1376,11 +1384,11 @@ for (out in 0:1){
     if (i == 1) {
       if (out == 0) {
         center %<>% rbind(
-          cbind("Traditional Jobs", " & ", " & " )
+          cbind("\\textbf{Traditional Jobs}", " & ", " & ", " & " )
         )
       } else {
         center %<>% rbind(
-          cbind("Outsourced Jobs", " & ", " & " )
+          cbind("\\textbf{Outsourced Jobs}", " & ", " & ", " & " )
         )
       }
     }
@@ -1391,17 +1399,15 @@ for (out in 0:1){
     temp <- lm_robust(eq, data = occ_timeline_y, fixed_effects = !!fe,
                       clusters = occ, se_type = "stata", try_cholesky = T)
     
-    t_mean <- mean(occ_timeline_y[[outcome]], na.rm = T) 
-    
     center %<>% rbind(
       cbind(outcome_names[i], 
             format_val(temp$coefficients["outsourced_per"], 
                        p_stars(temp$p.value["outsourced_per"]), r = 4, s = 4),
-            format_val(t_mean)
+            format_val(temp$r.squared), format_n(lm_N(temp))
       ),
       cbind("",
             format_se(temp$std.error["outsourced_per"], r = 4, s = 4),
-            " &"
+            " & ", " & "
       )
     )
   }
@@ -1420,12 +1426,11 @@ center %<>% cbind(
 bot <- str_c(
   "\\bottomrule
 \\end{tabular}
-\\caption{Occupation level regressions of percent outsourced each year on
-average job characteristics. Each regression contains controls for percent 
+}
+\\caption{Occupation level regressions of percent outsourced within an occupation
+each year on average job characteristics. Each regression contains controls for percent 
 in other alternative job types (ie. independent contractor, temp workers), percent
-Black, Hispanic, and union member, average age, and fixed effects
-at the occupation and week level. Outcomes include percent of jobs in the occupation
-and average job characteristics of non-outsourced and outsourced jobs.
+Black, Hispanic, and union member, average age, and occupation and year fixed effects.
 Regressions use robust standard errors clustered at the occupation level. 
 Stars represent
 significant difference from 0 at the .10 level *, .05 level **, and .01 level ***.}
@@ -1446,6 +1451,365 @@ write.table(str_c(top, center, bot),
             str_c(table_folder,
                   "NLSY79 Occupation Info/Occupation Regressions Yearly.tex"),
             quote=F, col.names=F, row.names=F, sep="")
+
+
+# Occupation Characteristics vs Outsourcing: Robustness -------------------
+
+# Use timeline_robust and run regressions again. This 
+# file matches to matched instead of matched_jobs, so variables are allowed to
+# differ by interview within jobs. Also make a monthly dataset to
+# do robustness with CPS
+timeline_r <- read_csv(str_c(clean_folder, "matched_timeline_robust.csv"),
+                     col_types = cols(
+                       .default = col_double(),
+                       week = col_date(format = ""),
+                       week_start_job = col_date(format = ""),
+                       week_end_job = col_date(format = "")
+                     )) %>% 
+  data.table()
+
+timeline_r[year(week) > 2000, `:=`(month = floor_date(week, unit = "month"),
+                                 year = floor_date(week, unit = "year"))]
+
+# Unweighted
+occ_timeline_r <- timeline_r %>%
+  # filter(year(week) <= 2012) %>% 
+  filter(!is.na(occ), !is.na(outsourced)) %>%
+  group_by(week, occ, outsourced, self_emp, indep_con, temp_work, on_call) %>%
+  summarise(
+    n = sum(weight),
+    log_real_wkly_wage = mean(log_real_wkly_wage, na.rm = T),
+    hours_week = mean(hours_week, na.rm = T),
+    part_time = mean(part_time, na.rm = T),
+    tenure = mean(tenure, na.rm = T),
+    health = mean(health, na.rm = T),
+    retirement = mean(retirement, na.rm = T),
+    any_benefits = mean(any_benefits, na.rm = T),
+    n_black = sum(black * weight),
+    n_hispanic = sum(hispanic * weight),
+    n_union = sum(union * weight, na.rm = T),
+    n_union_defined = sum((!is.na(union) %in% T) * weight),
+    tot_age = sum(age * weight),
+    tot_age_2 = sum((age ^ 2) * weight)
+  ) %>%
+  pivot_wider(names_from = c(outsourced, self_emp, indep_con, temp_work, on_call),
+              values_from = n:tot_age_2) %>%
+  ungroup() %>% 
+  # Rename pivot table so easier to reference 
+  rename_at(vars(ends_with("_0_0_0_0_0")), ~ str_replace(., "_0_0_0_0_0", "_0")) %>% 
+  rename_at(vars(ends_with("_1_0_0_0_0")), ~ str_replace(., "_1_0_0_0_0", "_1")) %>% 
+  rename_at(vars(ends_with("_0_1_0_0_0")), ~ str_replace(., "_0_1_0_0_0", "_2")) %>% 
+  rename_at(vars(ends_with("_0_0_1_0_0")), ~ str_replace(., "_0_0_1_0_0", "_3")) %>% 
+  rename_at(vars(ends_with("_0_0_0_1_0")), ~ str_replace(., "_0_0_0_1_0", "_4")) %>% 
+  rename_at(vars(ends_with("_0_0_0_0_1")), ~ str_replace(., "_0_0_0_0_1", "_5")) %>% 
+  mutate(
+    workers = r_sum(n_0, n_1, n_2, n_3, n_4, n_5),
+    outsourced_per = ifelse(!is.na(n_1), n_1 / workers * 100, 0),
+    self_emp_per = ifelse(!is.na(n_2), n_2 / workers * 100, 0),
+    indep_con_per = ifelse(!is.na(n_3), n_3 / workers * 100, 0),
+    temp_work_per = ifelse(!is.na(n_4), n_4 / workers * 100, 0),
+    on_call_per = ifelse(!is.na(n_5), n_5 / workers * 100, 0),
+    black_per = (
+      r_sum(n_black_0, n_black_1, n_black_2, n_black_3, n_black_4, n_black_5)
+      / workers * 100),
+    hispanic_per = (
+      r_sum(n_hispanic_0, n_hispanic_1, n_hispanic_2, n_hispanic_3, n_hispanic_4,
+            n_hispanic_5) 
+      / workers * 100),
+    union_per = (r_sum(n_union_0, n_union_1, n_union_2, n_union_3, n_union_4,
+                       n_union_5) / 
+                   r_sum(n_union_defined_0, n_union_defined_1, n_union_defined_2,
+                         n_union_defined_3, n_union_defined_4, n_union_defined_5)
+                 * 100),
+    age = (r_sum(tot_age_0, tot_age_1, tot_age_2, tot_age_3, tot_age_4, tot_age_5) 
+           / workers),
+    age_2 = (r_sum(tot_age_2_0, tot_age_2_1, tot_age_2_2, tot_age_2_3,
+                   tot_age_2_4, tot_age_2_5) 
+             / workers)
+  ) %>% 
+  group_by(week) %>% 
+  mutate(workers_per = workers / sum(workers) * 100) %>% 
+  group_by(occ) %>% 
+  mutate(average_size = mean(workers_per)) %>% 
+  ungroup()
+
+# Recreate Regressions
+
+# How do these correlations change with controls? Run regressions
+controls <- c("outsourced_per", "self_emp_per", "indep_con_per",
+              "temp_work_per", "on_call_per", "black_per", "hispanic_per",
+              "union_per", "age")
+
+fixed_effects <- c("week", "occ")
+fe <- create_formula("", fixed_effects)
+
+outcomes <- c("log_real_wkly_wage", "tenure", "part_time", "hours_week",
+              "health", "retirement", "any_benefits")
+
+outcome_names <- c("Log Real Weekly Wage", "Weeks Tenure", "Part-Time Status",
+                   "Hours Worked", "Health Insurance", "Retirement Benefits",
+                   "Any Benefits")
+
+# Create a table with regression results, starting with workers_per
+top <- "\\begin{tabular}{lSSS}
+\\toprule
+Dependent Variable & {Outsourced Percent} & {$R^2$} & {Observations}   \\\\  \\midrule
+"
+
+eq <- create_formula("workers_per", controls)
+
+temp <- lm_robust(eq, data = occ_timeline_r, fixed_effects = !!fe,
+                  clusters = occ, se_type = "stata", try_cholesky = T)
+
+center <- rbind(
+  cbind("Percent of Workers", 
+        format_val(temp$coefficients["outsourced_per"], 
+                   p_stars(temp$p.value["outsourced_per"]), r = 5, s = 5),
+        format_val(temp$r.squared), format_n(lm_N(temp))
+  ),
+  cbind("in Occupation",
+        format_se(temp$std.error["outsourced_per"], r = 5, s = 5),
+        " & ", " & "
+  )
+)
+
+for (out in 0:1){
+  for (i in seq_along(outcomes)){
+    
+    # Set heading for section
+    if (i == 1) {
+      if (out == 0) {
+        center %<>% rbind(
+          cbind("\\textbf{Traditional Jobs}", " & ", " & ", " & " )
+        )
+      } else {
+        center %<>% rbind(
+          cbind("\\textbf{Outsourced Jobs}", " & ", " & ", " & " )
+        )
+      }
+    }
+    
+    outcome <- str_c(outcomes[i], "_", out)
+    eq <- create_formula(outcome, controls)
+    
+    temp <- lm_robust(eq, data = occ_timeline_r, fixed_effects = !!fe,
+                      clusters = occ, se_type = "stata", try_cholesky = T)
+    
+    center %<>% rbind(
+      cbind(outcome_names[i], 
+            format_val(temp$coefficients["outsourced_per"], 
+                       p_stars(temp$p.value["outsourced_per"]), r = 4, s = 4),
+            format_val(temp$r.squared), format_n(lm_N(temp))
+      ),
+      cbind("",
+            format_se(temp$std.error["outsourced_per"], r = 4, s = 4),
+            " & ", " & "
+      )
+    )
+  }
+}
+
+# For slides, only keep certain rows
+s_center <- center[c(1:5, 12:13, 18:20, 27:28),]
+
+center %<>% cbind(
+  rbind("\\\\", "\\\\[2pt] \\midrule", "\\\\[2pt]", "\\\\", "\\\\[2pt]", 
+        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
+        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt] \\midrule",
+        "\\\\[2pt]", "\\\\", "\\\\[2pt]", 
+        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
+        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]"
+  )
+)
+
+s_center %<>% cbind(
+  rbind("\\\\", "\\\\[2pt] \\midrule", "\\\\[2pt]", "\\\\", "\\\\[2pt]", 
+        "\\\\",  "\\\\[2pt] \\midrule",
+        "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]"
+  )
+) 
+
+bot <- str_c(
+  "\\bottomrule
+\\end{tabular}
+}
+\\caption{Occupation level regressions of percent outsourced within occupation
+each week on average job characteristics. Each regression contains controls for percent 
+in other alternative job types (ie. independent contractor, temp workers), percent
+Black, Hispanic, and union member, average age, and occupation and week fixed effects.
+Regressions use robust standard errors clustered at the occupation level. 
+Stars represent
+significant difference from 0 at the .10 level *, .05 level **, and .01 level ***.}
+\\label{occ_corr_reg_robust}
+\\end{table}"
+)
+
+# Do weird stuff to create LaTeX output
+t_folder <- str_c(table_folder, "Junk/")
+file_1 <- str_c(t_folder, "center.txt")
+write.table(center, file_1, quote=T, col.names=F, row.names=F)
+center <- read.table(file_1, sep = "")
+write.table(center, file_1, quote=F, col.names=F, row.names=F, sep = "")
+center <- readChar(file_1, nchars = 1e6)
+
+write.table(str_c(table_top, siunitx, top, center, bot, "\n \\end{document}"),
+            str_c(table_folder,
+                  "NLSY79 Occupation Info/Occupation Regressions Robustness.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Save in Drafts
+write.table(str_c(d_table_top, top, center, bot),
+            str_c(d_table_folder, "NLSY79 Occupation Regressions Robust.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Save in Slides
+# Do weird stuff to create LaTeX output
+t_folder <- str_c(table_folder, "Junk/")
+file_1 <- str_c(t_folder, "center.txt")
+write.table(s_center, file_1, quote=T, col.names=F, row.names=F)
+s_center <- read.table(file_1, sep = "")
+write.table(s_center, file_1, quote=F, col.names=F, row.names=F, sep = "")
+s_center <- readChar(file_1, nchars = 1e6)
+
+write.table(str_c(s_table_top, top, s_center, s_bot),
+            str_c(s_table_folder, "NLSY79 Occupation Regressions Robust.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+
+# Occupation Characterstics at Monthly Level (CPS Comparison) -------------
+
+# Create occ_timeline_m at monthly level to compare to CPS
+occ_timeline_m <- timeline %>%
+  # filter(year(week) <= 2012) %>% 
+  filter(!is.na(occ), !is.na(outsourced)) %>%
+  group_by(month, occ, outsourced, self_emp, indep_con, temp_work, on_call) %>%
+  summarise(
+    ho_occ = mean(ho_occ),
+    n = sum(weight),
+    log_real_wkly_wage = mean(log_real_wkly_wage, na.rm = T),
+    hours_week = mean(hours_week, na.rm = T),
+    part_time = mean(part_time, na.rm = T),
+    tenure = mean(tenure, na.rm = T),
+    health = mean(health, na.rm = T),
+    retirement = mean(retirement, na.rm = T),
+    any_benefits = mean(any_benefits, na.rm = T),
+    n_black = sum(black * weight),
+    n_hispanic = sum(hispanic * weight),
+    n_union = sum(union * weight, na.rm = T),
+    n_union_defined = sum((!is.na(union) %in% T) * weight),
+    tot_age = sum(age * weight),
+    tot_age_2 = sum((age ^ 2) * weight)
+  ) %>%
+  pivot_wider(names_from = c(outsourced, self_emp, indep_con, temp_work, on_call),
+              values_from = n:tot_age_2) %>%
+  ungroup() %>% 
+  # Rename pivot table so easier to reference 
+  rename_at(vars(ends_with("_0_0_0_0_0")), ~ str_replace(., "_0_0_0_0_0", "_0")) %>% 
+  rename_at(vars(ends_with("_1_0_0_0_0")), ~ str_replace(., "_1_0_0_0_0", "_1")) %>% 
+  rename_at(vars(ends_with("_0_1_0_0_0")), ~ str_replace(., "_0_1_0_0_0", "_2")) %>% 
+  rename_at(vars(ends_with("_0_0_1_0_0")), ~ str_replace(., "_0_0_1_0_0", "_3")) %>% 
+  rename_at(vars(ends_with("_0_0_0_1_0")), ~ str_replace(., "_0_0_0_1_0", "_4")) %>% 
+  rename_at(vars(ends_with("_0_0_0_0_1")), ~ str_replace(., "_0_0_0_0_1", "_5")) %>% 
+  mutate(
+    workers = r_sum(n_0, n_1, n_2, n_3, n_4, n_5),
+    outsourced_per = ifelse(!is.na(n_1), n_1 / workers * 100, 0),
+    self_emp_per = ifelse(!is.na(n_2), n_2 / workers * 100, 0),
+    indep_con_per = ifelse(!is.na(n_3), n_3 / workers * 100, 0),
+    temp_work_per = ifelse(!is.na(n_4), n_4 / workers * 100, 0),
+    on_call_per = ifelse(!is.na(n_5), n_5 / workers * 100, 0),
+    black_per = (
+      r_sum(n_black_0, n_black_1, n_black_2, n_black_3, n_black_4, n_black_5)
+      / workers * 100),
+    hispanic_per = (
+      r_sum(n_hispanic_0, n_hispanic_1, n_hispanic_2, n_hispanic_3, n_hispanic_4,
+            n_hispanic_5) 
+      / workers * 100),
+    union_per = (r_sum(n_union_0, n_union_1, n_union_2, n_union_3, n_union_4,
+                       n_union_5) / 
+                   r_sum(n_union_defined_0, n_union_defined_1, n_union_defined_2,
+                         n_union_defined_3, n_union_defined_4, n_union_defined_5)
+                 * 100),
+    age = (r_sum(tot_age_0, tot_age_1, tot_age_2, tot_age_3, tot_age_4, tot_age_5) 
+           / workers),
+    age_2 = (r_sum(tot_age_2_0, tot_age_2_1, tot_age_2_2, tot_age_2_3,
+                   tot_age_2_4, tot_age_2_5) 
+             / workers)
+  ) %>% 
+  group_by(month) %>% 
+  mutate(workers_per = workers / sum(workers) * 100) %>% 
+  group_by(occ) %>% 
+  mutate(average_size = mean(workers_per)) %>% 
+  ungroup() %>% 
+  filter(!is.na(month))
+
+# Save occ_timeline_week in cleaned_data to compare with cps data
+write_csv(occ_timeline_m, str_c(clean_folder, "occ_timeline_m.csv"))
+
+# Do the same for robust (see above)
+occ_timeline_r_m <- timeline_r %>%
+  # filter(year(week) <= 2012) %>% 
+  filter(!is.na(occ), !is.na(outsourced)) %>%
+  group_by(month, occ, outsourced, self_emp, indep_con, temp_work, on_call) %>%
+  summarise(
+    n = sum(weight),
+    log_real_wkly_wage = mean(log_real_wkly_wage, na.rm = T),
+    hours_week = mean(hours_week, na.rm = T),
+    part_time = mean(part_time, na.rm = T),
+    tenure = mean(tenure, na.rm = T),
+    health = mean(health, na.rm = T),
+    retirement = mean(retirement, na.rm = T),
+    any_benefits = mean(any_benefits, na.rm = T),
+    n_black = sum(black * weight),
+    n_hispanic = sum(hispanic * weight),
+    n_union = sum(union * weight, na.rm = T),
+    n_union_defined = sum((!is.na(union) %in% T) * weight),
+    tot_age = sum(age * weight),
+    tot_age_2 = sum((age ^ 2) * weight)
+  ) %>%
+  pivot_wider(names_from = c(outsourced, self_emp, indep_con, temp_work, on_call),
+              values_from = n:tot_age_2) %>%
+  ungroup() %>% 
+  # Rename pivot table so easier to reference 
+  rename_at(vars(ends_with("_0_0_0_0_0")), ~ str_replace(., "_0_0_0_0_0", "_0")) %>% 
+  rename_at(vars(ends_with("_1_0_0_0_0")), ~ str_replace(., "_1_0_0_0_0", "_1")) %>% 
+  rename_at(vars(ends_with("_0_1_0_0_0")), ~ str_replace(., "_0_1_0_0_0", "_2")) %>% 
+  rename_at(vars(ends_with("_0_0_1_0_0")), ~ str_replace(., "_0_0_1_0_0", "_3")) %>% 
+  rename_at(vars(ends_with("_0_0_0_1_0")), ~ str_replace(., "_0_0_0_1_0", "_4")) %>% 
+  rename_at(vars(ends_with("_0_0_0_0_1")), ~ str_replace(., "_0_0_0_0_1", "_5")) %>% 
+  mutate(
+    workers = r_sum(n_0, n_1, n_2, n_3, n_4, n_5),
+    outsourced_per = ifelse(!is.na(n_1), n_1 / workers * 100, 0),
+    self_emp_per = ifelse(!is.na(n_2), n_2 / workers * 100, 0),
+    indep_con_per = ifelse(!is.na(n_3), n_3 / workers * 100, 0),
+    temp_work_per = ifelse(!is.na(n_4), n_4 / workers * 100, 0),
+    on_call_per = ifelse(!is.na(n_5), n_5 / workers * 100, 0),
+    black_per = (
+      r_sum(n_black_0, n_black_1, n_black_2, n_black_3, n_black_4, n_black_5)
+      / workers * 100),
+    hispanic_per = (
+      r_sum(n_hispanic_0, n_hispanic_1, n_hispanic_2, n_hispanic_3, n_hispanic_4,
+            n_hispanic_5) 
+      / workers * 100),
+    union_per = (r_sum(n_union_0, n_union_1, n_union_2, n_union_3, n_union_4,
+                       n_union_5) / 
+                   r_sum(n_union_defined_0, n_union_defined_1, n_union_defined_2,
+                         n_union_defined_3, n_union_defined_4, n_union_defined_5)
+                 * 100),
+    age = (r_sum(tot_age_0, tot_age_1, tot_age_2, tot_age_3, tot_age_4, tot_age_5) 
+           / workers),
+    age_2 = (r_sum(tot_age_2_0, tot_age_2_1, tot_age_2_2, tot_age_2_3,
+                   tot_age_2_4, tot_age_2_5) 
+             / workers)
+  ) %>% 
+  group_by(month) %>% 
+  mutate(workers_per = workers / sum(workers) * 100) %>% 
+  group_by(occ) %>% 
+  mutate(average_size = mean(workers_per)) %>% 
+  ungroup() %>% 
+  filter(!is.na(month))
+
+# Save occ_timeline_week in cleaned_data to compare with cps data
+write_csv(occ_timeline_r_m, str_c(clean_folder, "occ_timeline_robust_m.csv"))
 
 # Individual's Percent Outsourcing ----------------------------------------
 

@@ -3,6 +3,7 @@
 
 rm(list = ls())
 
+library(weights)
 library(magrittr)
 library(estimatr)
 library(data.table)
@@ -16,6 +17,8 @@ library(tidyverse)
 clean_folder <- "../Cleaned Data/"
 table_folder <- "../Tables/"
 figure_folder <- "../Figures/NLSY 79 Matched/"
+d_table_folder <- "../Drafts/Draft Tables/"
+s_table_folder <- "../Slides/Slide Tables/"
 
 # For saving graphs
 aspect_ratio <- 1.62
@@ -54,59 +57,6 @@ update_parameters <- function(name, val) {
   data_moments
 }
 
-# Create a function that finds difference of means or proportions and reports
-# * if 10%, ** if 5%, and *** if 1% different
-test <- function(data, var, obs, row_1, row_2, type) {
-  if (type == "mean") {
-    test <- tsum.test(mean.x=data[[var]][row_1],
-                      s.x=data[[str_c(var, "_se")]][row_1] * sqrt(data[[obs]][row_1]),
-                      n.x=data[[obs]][row_1],
-                      mean.y=data[[var]][row_2],
-                      s.y=data[[str_c(var, "_se")]][row_2] * sqrt(data[[obs]][row_2]),
-                      n.y=data[[obs]][row_2])
-  } else if (type == "prop") {
-    # If value is 0, return ""
-    if (data[[var]][row_1] == 0 | data[[var]][row_2] == 0){
-      return("")
-    }
-    test <- prop.test(x = c(data[[var]][row_1] * data[[obs]][row_1], 
-                            data[[var]][row_2] * data[[obs]][row_2]),
-                      n = c(data[[obs]][row_1], data[[obs]][row_2]),
-                      correct = FALSE)
-  } else {
-    return(warning("Not a valid test"))
-  }
-  
-  p <- test$p.value
-  if (p < .01) {
-    stars <- "\\textsuperscript{***}"
-  } else if (p < .05) {
-    stars <- "\\textsuperscript{**}"
-  } else if (p < .1) {
-    stars <- "\\textsuperscript{*}"
-  } else {
-    stars <- ""
-  }
-}
-
-# Create a function that finds proportion test and reports
-# * if 10%, ** if 5%, and *** if 1% different
-p_test_1 <- function(data, var, obs, row){
-  test <- prop.test(x = data[[var]][row] * data[[obs]][row],
-                    n = data[[obs]][row], correct = FALSE)
-  p <- test$p.value
-  if (p < .01){
-    stars <- "\\textsuperscript{***}"
-  } else if (p < .05){
-    stars <- "\\textsuperscript{**}"
-  } else if (p < .1){
-    stars <- "\\textsuperscript{*}"
-  } else{
-    stars <- ""
-  }
-  return(stars)
-}
-
 # Create a function that takes regression p-values and reports
 # * if 10%, ** if 5%, and *** if 1% significant
 p_stars <- function(p){
@@ -120,6 +70,29 @@ p_stars <- function(p){
     stars <- ""
   }
   return(stars)
+}
+
+# Create a function that finds difference of means or proportions and reports
+# * if 10%, ** if 5%, and *** if 1% different
+# means uses cond, proportion uses var_2
+test <- function(data, var, weight, type, cond = T, cond_y = T, divider = NULL) {
+  if (type == "mean") {
+    data_x <- data[cond,]
+    data_y <- data[cond_y,]
+    outcome <- wtd.t.test(x=data_x[[var]], y=data_y[[var]],
+                          weight=data_x[[weight]],
+                          weighty=data_y[[weight]],
+                          samedata = FALSE)
+    p <- outcome$coefficients["p.value"]
+  } else if (type == "prop") {
+    # (round outcome to make sure it's 0/1 (useful when we sometimes time averages))
+    outcome <- wtd.chi.sq(round(data[[var]]), data[[divider]], weight = data[[weight]])
+    p <- outcome[["p.value"]]
+  } else {
+    return(warning("Not a valid test"))
+  }
+  
+  p_stars(p)
 }
 
 # Create a function to properly format inputs
@@ -188,8 +161,8 @@ table_top <- "\\documentclass[12pt]{article}
 \\usepackage{booktabs}
 \\begin{document}
 \\begin{table}
-\\footnotesize
-\\centering \n"
+\\centering 
+\\resizebox{\\textwidth}{!}{ \n"
 
 # If using siunitx, include this too
 siunitx <- "\\sisetup{
@@ -202,7 +175,23 @@ table-align-text-post = false,
 group-digits          = false
 }"
 
-# Create married/single if certain matrital statuses
+# Create a default top for Draft tables (no resizebox)
+d_table_top <- "\\begin{table}[h!]
+\\centering 
+{ \n"
+
+# Create a default top for Slide tables (but sometimes use it for Drafts)
+s_table_top <- "\\begin{table}[h!]
+\\centering 
+\\resizebox{\\textwidth}{!}{ \n"
+
+# Create a default bottom for Slide tables (no details)
+s_bot <- "\\bottomrule
+\\end{tabular}
+}
+\\end{table}"
+
+# Create married/single if certain marital status
 matched %<>%
   mutate(
     single = 1 * (marital_status == 1),
@@ -215,16 +204,23 @@ matched_jobs %<>%
     married = 1 * (marital_status == 2)
   )
 
+splits <- c(split_data(matched), split_data(matched_jobs))
+
 # Demographic Summary Statistics ------------------------------------------------------
 
-# First, look at people who ever outsource vs those who never do (ever_out == 1/0)
-# Overall and in HO Occupations
+# First, look at people who ever outsource vs those who never do (ever_out_oj == 1/0)
+# Overall and ever in HO Occupations
+# And those ever in HO occupations vs not (ever_ho_occ == 1/0)
 # Weight based on population
 # Look only at first observation for demographics
 vars <- c("black", "hispanic", "less_hs", "hs", "aa", "ba", "plus_ba",
           "single", "married", "tot_child", "hh_child", "n")
 
-sum_demo <- split_data(matched)
+vars_ho <- c(vars, "ever_out_oj")
+
+sum_demo <- c(split_data(matched), list(matched))
+# For running t/p tests
+comp <- split_data(matched)
 
 for (i in 1:2) {
   sum_demo[[i]] %<>%
@@ -235,15 +231,30 @@ for (i in 1:2) {
     mutate(n = n()) %>% 
     summarise_at(vars, survey_mean, na.rm = T) %>% 
     arrange(desc(ever_out_oj)) 
+  
+  
+  comp[[i]] %<>%
+    group_by(case_id) %>% 
+    filter(row_number() == min(row_number())) 
 }
 
+sum_demo[[3]] %<>%
+  group_by(case_id) %>% 
+  filter(row_number() == min(row_number())) %>% 
+  as_survey_design(ids = case_id, weights = weight) %>% 
+  group_by(ever_ho_occ) %>%
+  mutate(n = n()) %>% 
+  summarise_at(vars_ho, survey_mean, na.rm = T) %>% 
+  arrange(desc(ever_ho_occ)) 
+
+# Baseline data same as comp[[1]]
+comp <- c(comp, list(comp[[1]]))
+
 # Create table in Latex
-vars_d <- c("black", "hispanic", "less_hs", "hs", "aa", "ba", "plus_ba",
+vars_p <- c("black", "hispanic", "less_hs", "hs", "aa", "ba", "plus_ba",
             "single", "married")
 
-vars_c <- c("tot_child", "hh_child")
-
-for (ho in 1:2) {
+for (ho in 1:3) {
   
   center <- rbind("Black", "", "Hispanic", "", "No HS Diploma", "", "HS Diploma",
                     "", "AA Degree", "", "BA Degree", "", "Post Graduate", "Degree",
@@ -251,38 +262,41 @@ for (ho in 1:2) {
                     "Children in", "Household", "Observations")
   
   if (ho == 1) {
-    description <- ""
-    label <- ""
+    description <- "who work at least one outsourced job (in On Jobs survey)"
+    label <- "_ever_out"
     save <- ""
+    header <- "Outsourced"
+    divider <- "ever_out_oj"
+  } else if (ho == 2) {
+    description <- " who ever work in a high outsourcing occupation, comparing 
+    those who work at least one outsourced job (in On Jobs survey)"
+    label <- "_ever_out_ever_ho"
+    save <- " Ever Outsourced in Ever HO Occupation"
+    header <- "Outsourced"
+    divider <- "ever_out_oj"
   } else {
-    description <- " who ever work in a high outsourcing occupation"
+    description <- " who work at least one job in a high outsourcing occupation"
     label <- "_ever_ho"
     save <- " Ever HO Occupation"
+    header <- "HO Occupation"
+    divider <- "ever_ho_occ"
   }
+  
+  cond <- comp[[ho]][[divider]] == 1
   
   for (i in 1:2) {
     col_i <- c()
-    for (var in vars_d){
+    for (var in vars[-length(vars)]) {
       se <- str_c(var, "_se")
       stars <- ""
       if (i == 2){
-        stars <- test(sum_demo[[ho]], var, "n", i, i - 1, type = "prop")
-      }
-        col_i %<>% rbind(format_val(sum_demo[[ho]][[var]][i], star = stars),
-                         format_se(sum_demo[[ho]][[se]][i]))
-      
-    }
-    # Don"t forget about total/hh children, which are means
-    for (var in vars_c){
-      se <- str_c(var, "_se")
-      stars <- ""
-      if (i == 2){
-        stars <- test(sum_demo[[ho]], var, "n", i, i - 1, type = "mean")
+        mode <- if (var %in% vars_p) "prop" else "mean"
+        stars <- test(comp[[ho]], var, "weight", mode, cond, !cond, divider)
       }
       col_i %<>% rbind(format_val(sum_demo[[ho]][[var]][i], star = stars),
                        format_se(sum_demo[[ho]][[se]][i]))
     }
-    col_i %<>% rbind(format_n(sum_demo[[ho]][["n"]][i]))
+    col_i %<>% rbind(format_n(sum_demo[[ho]][["n"]][i])) 
     center %<>% cbind(col_i)
   }
   
@@ -293,6 +307,25 @@ for (ho in 1:2) {
           "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\")
   )
   
+  # For the Draft/Slides, Keep only a few of these variables
+  d_center <- center[c(1:14, 23),]
+  
+  # If looking at Ever HO Occupation, also look at percent ever outsourced
+  if (ho == 3) {
+    var <- "ever_out_oj"
+    se <- str_c(var, "_se")
+    stars <- test(comp[[ho]], var, "weight", "prop", cond, !cond, divider)
+    add <- cbind(rbind("Percent Ever", "Outsourced"),
+                 rbind(format_val(sum_demo[[ho]][[var]][1]),
+                       format_se(sum_demo[[ho]][[se]][1])),
+                 rbind(format_val(sum_demo[[ho]][[var]][2], star = stars),
+                       format_se(sum_demo[[ho]][[se]][2])),
+                 rbind("\\\\", "\\\\[2pt]")
+            )
+    center <- rbind(add, center)
+    d_center <- rbind(add, d_center)
+  }
+  
   # Do weird stuff to create LaTeX output
   j_folder <- str_c(table_folder, "Junk/")
   file_1 <- str_c(j_folder, "center.txt")
@@ -301,34 +334,50 @@ for (ho in 1:2) {
   write.table(center, file_1, quote=F, col.names=F, row.names=F, sep = "")
   center <- readChar(file_1, nchars = 1e6)
   
-  top <- str_c(table_top, siunitx,
-                 "
-\\begin{tabular}{lSS}
+  top <- str_c(
+  "\\begin{tabular}{lSS}
 \\toprule
-Variable & {Ever Outsourced} & {Never Outsourced} \\\\ \\midrule
-"
-  )
+Variable & {Ever ", header, "} & {Never ", header, "} \\\\ \\midrule
+")
   
   bot <- str_c(
   "\\bottomrule
 \\end{tabular}
-\\caption{Demographic statistics for men", description, 
-" for those who work at least
-one outsourced job (in On Jobs survey) versus those who never do.
+}
+\\caption{Demographic statistics for men ", description, " versus those who never do.
 Observations are at the person level for first survey post-2000 
 and summary statistics are weighted.
-Stars represent significant difference from ever outsourced at the .10 level *,
+Stars represent significant difference at the .10 level *,
 .05 level **, and .01 level ***.}
 \\label{demo", label, "}
-\\end{table}
-\\end{document}"
+\\end{table}"
   )
-  
-  write.table(str_c(top, center, bot),
+
+  write.table(str_c(table_top, siunitx, top, center, bot, "\n \\end{document"),
               str_c(table_folder, "NLSY79 Demographics/Demographics", save, ".tex"),
               quote=F, col.names=F, row.names=F, sep="")
+  
+  # Do weird stuff to create LaTeX output
+  j_folder <- str_c(table_folder, "Junk/")
+  file_1 <- str_c(j_folder, "center.txt")
+  write.table(d_center, file_1, quote=T, col.names=F, row.names=F)
+  d_center <- read.table(file_1, sep = "")
+  write.table(d_center, file_1, quote=F, col.names=F, row.names=F, sep = "")
+  d_center <- readChar(file_1, nchars = 1e6)
+  
+  # Save for Drafts and Slides if ho %in% c(1, 3) 
+  if (ho %in% c(1, 3)) {
+    write.table(str_c(d_table_top, top, d_center, bot),
+                str_c(d_table_folder, "Demographics", save, ".tex"),
+                quote=F, col.names=F, row.names=F, sep="")
+    
+    # Table to long for resize to work, so manually set size
+    size <- if (ho == 1) "\n \\footnotesize \n" else "\n \\scriptsize \n"
+    write.table(str_c(d_table_top, size, top, d_center, s_bot),
+                str_c(s_table_folder, "Demographics", save, ".tex"),
+                quote=F, col.names=F, row.names=F, sep="")
+  }
 }
-
 
 # Job Number Statistics --------------------------------------------------
 
@@ -392,6 +441,7 @@ table %<>% str_c(
 "\n
 \\bottomrule
 \\end{tabular}
+}
 \\caption{Job numbers for men.}
 \\label{job_numbers}
 \\end{table}
@@ -405,17 +455,15 @@ write.table(table, str_c(table_folder, "NLSY79 Jobs/Job Numbers.tex"),
 # Jobs Summary Statistics -------------------------------------------------
 
 # Summarize jobs at the year level using matched and job level using
-# matched_jobs. Split by outsourced or not
-# And the by all job types
+# matched_jobs. Split by outsourced or not and by all job types
 
 vars_sum <- c("log_real_hrly_wage", "log_real_wkly_wage", "hours_week",
           "part_time", "tenure", "union", "job_sat", "any_benefits",
           "health", "retirement", "childcare", "dental", "flex_sched",
-          "life", "maternity", "profit_share", "train_school", "single",
-          "married", "tot_child", "hh_child", "n")
+          "life", "maternity", "profit_share", "train_school", "n")
 
-sum_jobs <- c(split_data(matched), split_data(matched_jobs),
-              split_data(matched), split_data(matched_jobs))
+sum_jobs <- c(splits, splits)
+
 for (i in 1:4) {
   sum_jobs[[i]] %<>%
     as_survey_design(ids = case_id, weights = weight) %>% 
@@ -432,37 +480,37 @@ for (i in 1:4) {
 }
 
 # Create Latex tables
-top_j <- str_c(table_top, siunitx, 
-"
-\\begin{tabular}{lSS}
+top_j <- "\\begin{tabular}{lSS}
 \\toprule
 & {Outsourced} & {Non-Outsourced} \\\\  \\midrule
 "
-)
 
-top_j_t <- str_c(table_top, siunitx, 
-"
-\\begin{tabular}{lSSSSSS}
+top_j_t <- "\\begin{tabular}{lSSSSSS}
 \\toprule
 Variable & {Outsourced} & {Traditional} & {Self-Employed} & {Ind. Contractor} & {On-Call} & {Temp} \\\\ \\midrule 
 "
-)
+
+types <- c("outsourced", "traditional", "self_emp", 
+           "indep_con", "on_call", "temp_work")
 
 # Create table in Latex
 # Use all vars except n
 vars <- vars_sum[-length(vars_sum)]
 
 # Divide variables by mean or prop (they are different below)
-vars_m <- c("log_real_hrly_wage", "log_real_wkly_wage", "hours_week",
-              "tenure", "job_sat", "wks_work_prev",
-              "tot_child", "hh_child")
+# vars_m <- c("log_real_hrly_wage", "log_real_wkly_wage", "hours_week",
+#               "tenure", "job_sat")
 
-vars_p <- c("part_time", "union", "any_benefits", "health", "retirement", "childcare",
-              "dental", "flex_sched", "life", "maternity", "profit_share", "train_school",
-              "single", "married")
+vars_p <- c("part_time", "union", "any_benefits", "health", "retirement",
+            "childcare", "dental", "flex_sched", "life", "maternity",
+            "profit_share", "train_school")
 
+dividers <- c()
 sample <- c("", " for workers who are ever in high outsourcing industries")
 observation <- c("person-job-year", "person-job")
+explanation <- c(
+  "", ", jobs observed more than once use average characteristics"
+  )
 label <- c("_year", "_year_ho", "_job", "_job_ho")
 folder <- c("Jobs", "Job Types")
 save <- c("Year", "Year HO Occupations", "Job", "Job HO Occupations")
@@ -480,15 +528,34 @@ for (ty in 1:2) {
       "Job Satisfaction", "(Lower Better)", "Any Benefits", "", "Health",
       "Insurance", "Retirement", "Plan", "Subsidized", "Childcare", "Dental",
       "Insurance", "Flex", "Schedule", "Life", "Insurance", "Maternity",
-      "Leave", "Profit", "Sharing", "Training", "", "Single", "", "Married",
-      "", "Total Number", "of Children", "Children in", "Household", "Observations")
+      "Leave", "Profit", "Sharing", "Training", "", "Observations")
+    
+    # What is the comparison dataset for test of differences?
+    comp_r <- splits[[k]]
     
     for (i in 1:NROW(sum_jobs[[j]])){
       col_i <- c()
+      # If ty == 2 (looking at all types), then for proportion tests,
+      # need to get rid of all types but that type and outsourced
+      type <- types[i]
+      if (ty == 2) {
+        cond <- comp_r$outsourced == 1
+        cond_y <- comp_r[[type]] == 1
+        comp <- comp_r[cond | cond_y, ]
+        # For these, need to recreate cond and cond_y using comp
+        cond <- comp$outsourced == 1
+        cond_y <- comp[[type]] == 1
+      } else {
+        cond <- comp_r$outsourced == 1
+        cond_y <- comp_r$outsourced == 0
+        comp <- comp_r
+      }
       for (var in vars){
         se <- str_c(var, "_se")
         mode <- if (var %in% vars_p) "prop" else "mean"
-        stars <- if (i > 1) test(sum_jobs[[j]], var, "n", 1, i, mode) else ""
+        stars <- if (i > 1) test(
+          comp, var, "weight", mode, cond, cond_y, "outsourced"
+          ) else ""
         col_i %<>% rbind(
           format_val(sum_jobs[[j]][[var]][i], star = stars),
           format_se(sum_jobs[[j]][[se]][i])
@@ -504,9 +571,13 @@ for (ty in 1:2) {
             "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
             "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
             "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
-            "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
-            "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
-            "\\\\"))
+            "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",  "\\\\"))
+    
+    # For Slides, (only if ty == 2) do not want self_emp or on_call
+    # And only care about a few variables
+    if (ty == 2) {
+      s_center <- center[c(1:4, 7:10, 15:18, 35),c(1:3, 5, 7:8)]
+    }
   
     # Do weird stuff to create LaTeX output
     j_folder <- str_c(table_folder, "Junk/")
@@ -521,67 +592,87 @@ for (ty in 1:2) {
       bot <- str_c(
 "\\bottomrule
 \\end{tabular}
+}
 \\caption{Summary statistics of jobs divided by outsourced and non-outsourced jobs",
 sample[ho], ". 
-Observations are at the ", observation[ob], " level and 
-statistics are weighted at the person level. 
+Observations are at the ", observation[ob], " level", explanation[ob],
+". All statistics are weighted at the person level. 
 Stars represent significant difference from outsourced jobs at the .10 level *, 
 .05 level **, and .01 level ***.}
 \\label{jobs", label[k], "}
-\\end{table}
-\\end{document}"
+\\end{table}"
       )
     } else {
       top <- top_j_t
       bot <- str_c(
 "\\bottomrule
 \\end{tabular}
+}
 \\caption{Summary statistics of jobs divided by job types",
         sample[ho], ". 
-Observations are at the ", observation[ob], " level and 
-statistics are weighted at the person level. 
+Observations are at the ", observation[ob], " level", explanation[ob],
+". All statistics are weighted at the person level.
 Stars represent significant difference from outsourced jobs at the .10 level *, 
 .05 level **, and .01 level ***.}
 \\label{job_types", label[k], "}
-\\end{table}
-\\end{document}"
+\\end{table}"
       )
+      
+      # If ho == 1, save a version in Drafts and Slides
+      if (ho == 1) {
+        write.table(str_c(s_table_top, top, center, bot),
+                    str_c(d_table_folder, "Job Summary Statistics ", save[k], ".tex"),
+                    quote=F, col.names=F, row.names=F, sep="")
+        
+        # Do weird stuff to create LaTeX output
+        j_folder <- str_c(table_folder, "Junk/")
+        file_1 <- str_c(j_folder, "center.txt")
+        write.table(s_center, file_1, quote=T, col.names=F, row.names=F)
+        s_center <- read.table(file_1, sep = "")
+        write.table(s_center, file_1, quote=F, col.names=F, row.names=F, sep = "")
+        s_center <- readChar(file_1, nchars = 1e6)
+        
+        s_top <- "\\begin{tabular}{lSSSS}
+\\toprule
+Variable & {Outsourced} & {Traditional} & {Ind. Contractor} & {Temp} \\\\ \\midrule 
+"
+        
+        write.table(str_c(s_table_top, s_top, s_center, s_bot),
+                    str_c(s_table_folder, "Job Summary Statistics ", save[k], ".tex"),
+                    quote=F, col.names=F, row.names=F, sep="")
+      }
     }
   
-  write.table(str_c(top, center, bot),
+  write.table(str_c(table_top, siunitx, top, center, bot, "\n \\end{document}"),
               str_c(table_folder, "NLSY79 ", folder[ty] ,"/Jobs ", save[k], ".tex"),
               quote=F, col.names=F, row.names=F, sep="")
     }
   }
 }
 
-# HO Occupation Characteristics --------------------------------------------
+# HO Occupation Job Characteristics --------------------------------------------
 
 # How do HO Occupations compare to non-HO Occupations? Use matched_jobs
-# and aggregate to occupation level
-vars_sum <- c("outsourced", "age", "black", "hispanic",
-              "less_hs", "hs", "aa", "ba", "plus_ba",
-              "log_real_hrly_wage", "log_real_wkly_wage", "hours_week",
+vars_sum <- c("log_real_hrly_wage", "log_real_wkly_wage", "hours_week",
               "part_time", "tenure", "union", "job_sat", "any_benefits",
-              "health", "retirement", "single", "married",
-              "n", "weight_w", "ho_occ")
+              "health", "retirement", "childcare", "dental", "flex_sched",
+              "life", "maternity", "profit_share", "train_school", "n")
 
-occupation_type <- matched_jobs %>% 
-  filter(!is.na(ho_occ)) %>% 
-  as_survey_design(ids = case_id, weights = weight) %>% 
-  group_by(occ) %>% 
-  mutate(
-    weight_w = sum(weight),
-    n = n()
-    ) %>% 
-  summarise_at(vars_sum, survey_mean, na.rm = T) %>%
-  as_survey_design(ids = occ, weights = weight_w) %>% 
-  mutate(ho_occ = round(ho_occ)) %>% 
-  group_by(ho_occ) %>% 
-  mutate(n = n()) %>% 
-  summarise_at(vars_sum[-length(vars_sum):-(length(vars_sum)-1)],
-               survey_mean, na.rm = T) %>% 
-  arrange(desc(ho_occ))
+ho_sum <- list(matched, matched_jobs)
+comp <- list(matched, matched_jobs)
+
+for (i in 1:2) {
+  ho_sum[[i]] %<>%
+    as_survey_design(ids = case_id, weights = weight) %>% 
+    group_by(ho_occ) %>% 
+    mutate(n = n()) %>% 
+    summarise_at(vars_sum, survey_mean, na.rm = T) %>% 
+    arrange(desc(ho_occ))
+}
+
+observation <- c("person-job-year", "person-job")
+label <- c("_year", "_job")
+save <- c("Year", "Job")
 
 # Create a Latex table
 top <- str_c(table_top, siunitx, 
@@ -592,92 +683,96 @@ top <- str_c(table_top, siunitx,
 "
 )
 
-# Drop last three vars (n, weight, and ho_occ) from vars
-vars <- vars_sum[-length(vars_sum):-(length(vars_sum)-2)]
+# Drop n from vars
+vars <- vars_sum[-length(vars_sum)]
 
 # Proportion varables
-vars_p <- c("outsourced", "black", "hispanic", 
-            "less hs", "hs", "aa", "ba", "plus ba", "part_time", "union",
-            "any_benefits", "health", "retirement", "single", "married")
+vars_p <- c("part_time", "union", "any_benefits", "health", "retirement", "childcare",
+            "dental", "flex_sched", "life", "maternity", "profit_share", "train_school")
 
-center <- rbind("Percent", "Outsourced", "Age", "", "Percent", "Black", "Percent", 
-                "Hispanic", "Less", "High School", "High School", "",
-                "Associates", "Degree", "Bachelor's", "Degree", "Plus", "Degree",
-                "Log Real", "Hourly Wage", "Log Real", 
-                "Weekly Wage", "Hours Worked", "per Week", "Part-Time", "",
-                "Weeks Tenure", "", "Union", "", "Job Satisfaction", "(Lower Better)", 
-                "Any Benefits", "", "Health Insurance", "", "Retirement", "Plan",
-                "Single", "", "Married", "", "Observations")
-
-for (i in 1:2) {
+for (ob in 1:2) { 
   
-  c_i <- c()
-  for (var in vars) {
-    
-    se <- str_c(var, "se", sep = "_")
-    t <- if (var %in% vars_p) "prop" else "mean"
-    stars <- if (i == 2) test(occupation_type, var, "n", 1, 2, type = t) else ""
-    
-    c_i %<>% rbind(
-      format_val(occupation_type[[var]][i], star = stars),
-      format_se(occupation_type[[se]][i])
+  cond <- comp[[ob]]$ho_occ == 1
+  cond_y <- comp[[ob]]$ho_occ == 0
+  
+  center <- rbind(
+    "Log Real", "Hourly Wage", "Log Real", "Weekly Wage", "Hours Worked", 
+    "Weekly", "Part Time", "", "Tenure", "(Weeks)", "Union", "",
+    "Job Satisfaction", "(Lower Better)", "Any Benefits", "", "Health",
+    "Insurance", "Retirement", "Plan", "Subsidized", "Childcare", "Dental",
+    "Insurance", "Flex", "Schedule", "Life", "Insurance", "Maternity",
+    "Leave", "Profit", "Sharing", "Training", "", "Observations")
+  
+  for (i in 1:2){
+    col_i <- c()
+    for (var in vars){
+      se <- str_c(var, "_se")
+      mode <- if (var %in% vars_p) "prop" else "mean"
+      stars <- if (i > 1) test(
+        comp[[ob]], var, "weight", mode, cond, cond_y, "ho_occ"
+      ) else ""
+      col_i %<>% rbind(
+        format_val(ho_sum[[ob]][[var]][i], star = stars),
+        format_se(ho_sum[[ob]][[se]][i])
       )
+    }
+    col_i %<>% rbind(format_n(ho_sum[[ob]]$n[i]))
+    center %<>% cbind(col_i)
   }
   
-  c_i %<>% rbind(format_n(occupation_type$n[i]))
+  center %<>% cbind(
+    rbind("\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
+          "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
+          "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
+          "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
+          "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
+          "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",  "\\\\"))
   
-  center %<>% cbind(c_i)
-}
-
-center %<>% cbind(
-  rbind("\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
-        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
-        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
-        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
-        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
-        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
-        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
-        "\\\\[2pt]"))
-
-# Do weird stuff to create LaTeX output
-j_folder <- str_c(table_folder, "Junk/")
-file_1 <- str_c(j_folder, "center.txt")
-write.table(center, file_1, quote=T, col.names=F, row.names=F)
-center <- read.table(file_1, sep = "")
-write.table(center, file_1, quote=F, col.names=F, row.names=F, sep = "")
-center <- readChar(file_1, nchars = 1e6)
-
-bot <- "
-\\bottomrule
+  # Do weird stuff to create LaTeX output
+  j_folder <- str_c(table_folder, "Junk/")
+  file_1 <- str_c(j_folder, "center.txt")
+  write.table(center, file_1, quote=T, col.names=F, row.names=F)
+  center <- read.table(file_1, sep = "")
+  write.table(center, file_1, quote=F, col.names=F, row.names=F, sep = "")
+  center <- readChar(file_1, nchars = 1e6)
+  
+  bot <- str_c(
+      "\\bottomrule
 \\end{tabular}
-\\caption{Summary statistics of jobs divided by high outsourcing (HO) occupations
-(all occupations with outsourcing two times more than average) vs not.
-Stars represent significant difference from HO occupations at the .10 level *, 
+}
+\\caption{Summary statistics of jobs divided by high outsourcing ($\\geq$ 4.4\\%)
+vs other occupations.
+Observations are at the ", observation[ob], " level and 
+statistics are weighted at the person level. 
+Stars represent significant difference from outsourced jobs at the .10 level *, 
 .05 level **, and .01 level ***.}
-\\label{ho_occ}
+\\label{jobs", label[ob], "}
 \\end{table}
 \\end{document}"
-
-write.table(str_c(top, center, bot),
-            str_c(table_folder, "NLSY79 Occupation Info/HO Occupations.tex"),
-            quote=F, col.names=F, row.names=F, sep="")
+    )
+  
+  write.table(str_c(top, center, bot),
+              str_c(table_folder, "NLSY79 Jobs/Jobs ", save[ob],
+                    " HO Occupation vs Not.tex"),
+              quote=F, col.names=F, row.names=F, sep="")
+}
 
 
 # Summarize Union NA ------------------------------------------------------
 
 # Note: always run this code after previous
 
-# Many people are missing union. Do these people/jobs look any different
-union_type <- c(split_data(matched), split_data(matched_jobs))
-for (i in 1:4) {
-  union_type[[i]] %<>%
-    filter(!is.na(union_fill)) %>% 
-    as_survey_design(ids = case_id, weights = weight) %>% 
-    group_by(union_fill, outsourced) %>% 
-    mutate(n = n()) %>% 
-    summarise_at(vars_sum, survey_mean, na.rm = T) %>% 
-    arrange(desc(union_fill))
-}
+# # Many people are missing union. Do these people/jobs look any different
+# union_type <- c(split_data(matched), split_data(matched_jobs))
+# for (i in 1:4) {
+#   union_type[[i]] %<>%
+#     filter(!is.na(union_fill)) %>% 
+#     as_survey_design(ids = case_id, weights = weight) %>% 
+#     group_by(union_fill, outsourced) %>% 
+#     mutate(n = n()) %>% 
+#     summarise_at(vars_sum, survey_mean, na.rm = T) %>% 
+#     arrange(desc(union_fill))
+# }
 
 
 # Within Job Wage Distribution --------------------------------------------
@@ -729,12 +824,15 @@ ggsave(str_c(figure_folder, "LRW Wage Compared to First Observation Ever HO.pdf"
 
 # Compare outsourced vs not for janitors and security guards based on
 # self-reported outsourced and Dube and Kaplan's measure (outsourced_2), 
-# whic uses those in ceratin industries as outsourced. 
+# which uses those in ceratin industries as outsourced. 
 # See if they are significantly different
+# Define outsourced as all non-traditional (or not on_call)
+# jobs to better compare with DK
 
 janitor <- matched_jobs %>%
   filter(occ == 4220) %>%
   mutate(
+    outsourced_a = 1 - traditional - on_call,
     outsourced_2 = 1 * (ind == 7690),
     out_1_v_2 = outsourced - outsourced_2
   ) %>% 
@@ -743,20 +841,23 @@ janitor <- matched_jobs %>%
 sg <- matched_jobs %>%
   filter(occ == 3920) %>%
   mutate(
+    outsourced_a = 1 - traditional - on_call,
     outsourced_2 = 1 * (ind == 7680),
     out_1_v_2 = outsourced - outsourced_2
   ) %>% 
   filter(!is.na(outsourced_2)) 
 
-vars_sum_js <- c("log_real_hrly_wage", "log_real_wkly_wage", "any_benefits", 
-                 "health", "hours_week", "part_time", "union", "job_sat",
+vars_sum_js <- c("log_real_hrly_wage", "log_real_wkly_wage", 
+                 "hours_week", "part_time",
+                 "any_benefits", "health", "union", "job_sat",
                  "less_hs", "hs", "aa", "ba", "plus_ba",
                  "black", "hispanic", "age", "n")
 
-sum_js <- c(split_data(janitor), split_data(sg))
+sum_js <- list(janitor, janitor, sg, sg)
+comp_js <- list(janitor, sg)
 
 for (i in 1:4) {
-  out<- if (i %% 2 == 1) "outsourced" else "outsourced_2"
+  out<- if (i %% 2 == 1) "outsourced_a" else "outsourced_2"
   
   sum_js[[i]] %<>%
     as_survey_design(ids = case_id, weights=weight) %>% 
@@ -766,23 +867,28 @@ for (i in 1:4) {
     arrange_at(desc(out))
 }
 
-top_js <- str_c(table_top, siunitx, 
-"
-\\begin{tabular}{lSSSS}
+top_js <- "\\begin{tabular}{lSSSS}
 \\toprule
 & \\multicolumn{2}{c}{{Self-Reported (This Paper)}} & 
 \\multicolumn{2}{c}{{Industry-Occupation (Dube and Kaplan)}} \\\\
 Variable & {Outsourced} & {Not Outsourced} & {Outsourced} & {Not Outsourced} \\\\ \\midrule
 "
-)
+
+# Slides need a slightly tighter top
+s_top <- "\\begin{tabular}{lSSSS}
+\\toprule
+& \\multicolumn{2}{c}{{Self-Reported (This Paper)}} & 
+\\multicolumn{2}{c}{{Ind-Occ (Dube and Kaplan)}} \\\\
+Variable & {Outsourced} & {Not Outsourced} & {Outsourced} & {Not Outsourced} \\\\ \\midrule
+"
 
 # Create table in Latex
 vars_js <- vars_sum_js[-length(vars_sum_js)]
 
 vars_js_p <- c("part_time", "black", "hispanic", "less_hs", "hs", "aa", "ba", "plus_ba", 
-               "female", "any_benefits", "health", "union")
+               "any_benefits", "health", "union")
 
-vars_js_m <- c("log_real_hrly_wage", "log_real_wkly_wage", "hours_week", "job_sat", "age")
+# vars_js_m <- c("log_real_hrly_wage", "log_real_wkly_wage", "hours_week", "job_sat", "age")
 
 desc_js <- c("janitors (occupation 4220)", "security guards (occupation 3920)")
 label_js <- c("janitor", "sg")
@@ -792,24 +898,52 @@ ind_js <- c("4220", "3920")
 for (js in 1:2){
   
   center_js <- rbind("Log Real", "Hourly Wage", "Log Real", "Weekly Wage",
-                     "Any Benefits", "", "Health Insurance", "", "Hours Worked",
-                     "per Week", "Part Time", "",
+                     "Hours Worked", "per Week", "Part Time", "",
+                     "Any Benefits", "", "Health Insurance", "", 
                      "Union", "", "Job Satisfaction", "(Lower Better)", "No HS Diploma",
                      "", "HS Diploma", "","AA Degree", "", "BA Degree", "",
                      "Post Graduate", "Degree", "Black", "",
                      "Hispanic", "", "Age", "", "Observations")
+  
+  comp <- comp_js[[js]]
   
   for (def in 1:2) {
     
     j <- 2 * (js - 1) + def
     
     for (i in 1:2) {
+      r <- i + 2 * (def - 1)
+      # Different comparison groups
+      if (r == 2){
+        divider <- "outsourced_a"
+        cond <- comp$outsourced_a == 1
+        cond_y <- comp$outsourced_a == 0
+      } else if (r == 4) {
+        divider <- "outsourced_2"
+        cond <- comp$outsourced_2 == 1
+        cond_y <- comp$outsourced_2 == 0
+      } else {
+        cond <- T
+        cond_y <- T
+      }
+      # This is not true for our Xi test (because there is overlap)
+      # else if (r == 3) {
+        # divider <- "outsourced_a"
+        # cond <- comp_r$outsourced_a == 1
+        # cond_y <- comp_r$outsourced_2 == 1
+        # comp <- comp_r[cond | cond_y, ]
+        # # Need to make these the same size as comp
+        # cond <- comp$outsourced_a == 1
+        # cond_y <- comp$outsourced_2 == 1
+      # } 
       
       col_i <- c()
       for (var in vars_js){
         se <- str_c(var, "_se")
         mode <- if (var %in% vars_js_p) "prop" else "mean"
-        stars <- if (i == 2) test(sum_js[[j]], var, "n", 1, i, mode) else ""
+        stars <- if (i > 1) test(
+          comp, var, "weight", mode, cond, cond_y, divider
+        ) else ""
         col_i %<>% rbind(
           format_val(sum_js[[j]][[var]][i], star = stars),
           format_se(sum_js[[j]][[se]][i])
@@ -829,6 +963,9 @@ for (js in 1:2){
           "\\\\", "\\\\[2pt]", "\\\\")
     )
   
+  # Save only some variables for Slides
+  s_center <- center_js[c(3:4, 7:10, 17:20, 27:30, 33),]
+  
   # Do weird stuff to create LaTeX output
   j_folder <- str_c(table_folder, "Junk/")
   file_1 <- str_c(j_folder, "center.txt")
@@ -840,35 +977,53 @@ for (js in 1:2){
   bot_js <- str_c(
     "\\bottomrule
 \\end{tabular}
+}
 \\caption{Summary statistics for ", desc_js[js], " that are outsourced vs
 not outsourced. In the left two columns, outsourced is self-reported by the worker.
-In the right two, it is inferred if the worker is in industry ", ind_js[js], 
-" following Dube and Kaplan (2010). Observations are at the
-worker-job-year level and summary statistics are weighted. 
-Stars represent significant difference from outsourced (the second and fourth column)
-or from self-reported outsourced (the third column) at the .10 level *,
-.05 level **, and .01 level ***.}
-\\label{", "}
-\\end{table}
-\\end{document}"
+Note that to better compare with Dube and Kaplan (2010), we report all
+contracted out, self-employed, independent contractor, and temp jobs as 
+outsourced rather than just contracted out jobs as in the main text.
+    In the right two, it is inferred if the worker is in industry ", 
+    ind_js[js], 
+" following Dube and Kaplan. Observations are at the
+worker-job-year level and summary statistics are weighted at the person level. 
+Stars represent significant difference from outsourced of same determination method
+at the .10 level *, .05 level **, and .01 level ***.}
+\\label{", label_js[js], "}
+\\end{table}"
   )
   
-  write.table(str_c(top_js, center_js, bot_js),
+  write.table(str_c(table_top, siunitx, top_js, center_js, bot_js, "\n \\end{document}"),
               str_c(table_folder, "NLSY79 Dube Kaplan/", occ_js[js], " Summary.tex"),
+              quote=F, col.names=F, row.names=F, sep="")
+  
+  # Save a version to Drafts
+  write.table(str_c(s_table_top, top_js, center_js, bot_js),
+              str_c(d_table_folder, "Dube Kaplan ", occ_js[js], " Summary.tex"),
+              quote=F, col.names=F, row.names=F, sep="")
+  
+  # Save a version to Slides
+  # Do weird stuff to create LaTeX output
+  j_folder <- str_c(table_folder, "Junk/")
+  file_1 <- str_c(j_folder, "center.txt")
+  write.table(s_center, file_1, quote=T, col.names=F, row.names=F)
+  s_center <- read.table(file_1, sep = "")
+  write.table(s_center, file_1, quote=F, col.names=F, row.names=F, sep = "")
+  s_center <- readChar(file_1, nchars = 1e6)
+  
+  write.table(str_c(s_table_top, s_top, s_center, s_bot),
+              str_c(s_table_folder, "Dube Kaplan ", occ_js[js], " Summary.tex"),
               quote=F, col.names=F, row.names=F, sep="")
   
 }
 
 # What are the self-reported job types of DK's outsourced?
 # Use data.frame's SQL like capabilities to make these tables
-top <- str_c(table_top, 
-"
-\\begin{tabular}{lrr|r}
+top <- "\\begin{tabular}{lrr|r}
 \\toprule
 & \\multicolumn{3}{c} {Industry-Occupation (Dube and Kaplan)} \\\\
 Self-Reported & Outsourced & Not Outsourced & Total \\\\ \\midrule
 "
-)
 
 occ_js <- c("janitors (occupation 4220)", "security guards (occupation 3920)")
 ind_js <- c("7690", "7680")
@@ -881,7 +1036,7 @@ dt_js <- list(data.table(janitor), data.table(sg))
 
 for (js in 1:2){
   
-  center <- c("Outsourced", "Independent Contractor", "Temp Worker",
+  center <- c("Contracted Out", "Independent Contractor", "Temp Worker",
                 "On-Call Worker", "Self-Employed", "Traditional Employee", "Total" )
   
   col_i <- c()
@@ -915,22 +1070,31 @@ for (js in 1:2){
   write.table(center, file_1, quote=F, col.names=F, row.names=F, sep = "")
   center <- readChar(file_1, nchars = 1e6)
   
-  
   bot <- str_c(
     "\\bottomrule
 \\end{tabular}
+}
 \\caption{Counts of Dube and Kaplan (2010) method of measuring outsourcing versus
 NLSY 79 self-reported job type for ", occ_js[js], ". 
 For columns, workers are consider outsourced if they are in industry ",
     ind_js[js], ". 
-For rows, I use the worker's self-reported job type.}
+For rows, we show the worker's self-reported job type.}
 \\label{dk_types_", label[js], "}
-\\end{table}
-\\end{document}"
+\\end{table}"
   )
   
-  write.table(str_c(top, center, bot),
+  write.table(str_c(table_top, top, center, bot, "\n \\end{document}"),
               str_c(table_folder, "NLSY79 Dube Kaplan/", save[js], " Types.tex"),
+              quote=F, col.names=F, row.names=F, sep="")
+  
+  # Save in Drafts
+  write.table(str_c(d_table_top, top, center, bot),
+              str_c(d_table_folder, "Dube Kaplan ", save[js], " Outsourced.tex"),
+              quote=F, col.names=F, row.names=F, sep="")
+  
+  # Save in Slides
+  write.table(str_c(s_table_top, top, center, s_bot),
+              str_c(s_table_folder, "Dube Kaplan ", save[js], " Outsourced.tex"),
               quote=F, col.names=F, row.names=F, sep="")
 }
 
@@ -979,6 +1143,7 @@ top %<>% str_c(
 
 bot <- "\\bottomrule
 \\end{tabular}
+}
 \\caption{Percent of jobs in each job type for men. 
 Observations weighted at the person level.}
 \\label{job_types}
@@ -1000,25 +1165,26 @@ rm("dt_js", "janitor", "job_type_sum", "life_jobs", "sg", "sum_demo",
 # and creates table in Latex
 # 1. Basic Controls (age:age quartic, black, hispanic, education,
 # union_fill, region, msa/cc, marital status, children, hours week / part time, year)
-# 2. Add tenure quartic
-# 3. Add occ factors
-# 4. Add 2+3
-# 5. Individual FE + some controls (age quartic, union_fill, region, msa/cc,
+# 2. Add tenure quartic and occ factors
+# 3. Individual FE + some controls (age quartic, union_fill, region, msa/cc,
 # marital stutus, children, hours week / part time, year)
-# 6. Add tenure quartic
-# 7. Add occ factors
-# 8. Add 6+7
+# 4. Add tenure quartic
+# 5. Add occ factors
+# 6. Add 6+7
 
-var_r <- c("log_real_hrly_wage", "log_real_wkly_wage", "job_sat",
-           "any_benefits", "health")
+# Also create a table for Drafts and Slides with just 5 and 6 for some outcomes
+var_r <- c("log_real_hrly_wage", "log_real_wkly_wage", "hours_week", "part_time",
+           "job_sat", "any_benefits", "health")
 
-var_names <- c("log real hourly wages", "log real weekly wages", 
+var_names <- c("log real hourly wages", "log real weekly wages",
+               "hours worked per week", 
+               "part-time status ($<$35 hours per week)", 
                "job satisfaction (lower is better)",
                "receiving any employment benefits",
                "receiving health insurance through employer")
 
 save_names <- c("LRH Wages", "LRW Wages", "Job Satisfaction", "Benefits",
-                "H Insurance")
+                "H Insurance", "Hours Week", "Part Time")
 
 types <- c("outsourced", "self_emp", "indep_con", "temp_work", "on_call")
 
@@ -1034,12 +1200,15 @@ tenure <- c("I((tenure/100))", "I((tenure/100)^2)", "I((tenure/100)^3)",
 
 fixed_effects <- c("region", "marital_status", "msa")
 
-labels <- c("lrhw", "lrww", "job_sat", "benefits", "health")
+labels <- c("lrhw", "lrww", "job_sat", "benefits", "health", "hours", "pt")
 
 dfs <- list(matched, matched_jobs)
 samples <- c("person-job-year", "person-job")
 s_labels <- c("_year", "_job")
-s_saves <- c("Years ", "Jobs ")
+s_saves <- c("Years", "Jobs")
+s_explanations <- c(
+  "", ", jobs observed more than once use average characteristics"
+)
 
 top <- str_c(table_top, siunitx, 
              "
@@ -1050,12 +1219,26 @@ top <- str_c(table_top, siunitx,
 "
 )
 
+center_d <- rbind("Log Real", "Hourly Wages", "Log Real", "Weekly Wages",
+                  "Hours Worked", "Per Week", "Part-Time", "",
+                  "Job Satisfaction", "(Lower Better)", 
+                  "Any Benefits", "", "Health", "Insurance")
+
+top_d <- "\\begin{tabular}{lSSS}
+\\toprule
+Outcome & {Outsourced} & {$R^2$}  & {Observations} \\\\\\midrule \n"
+
 for (loop in 1:2) {
   
   sample <- samples[loop]
   s_label <- s_labels[loop]
   s_save <- s_saves[loop]
+  s_explanation <- s_explanations[loop]
   y <- if (loop == 1) " and year" else ""
+  
+  # Reset Draft Table Centers
+  c_5 <- c()
+  c_6 <- c()
   
   for (ind in seq_along(var_r)) {
     
@@ -1065,7 +1248,7 @@ for (loop in 1:2) {
     var <- var_r[ind]
     var_name <- var_names[ind]
     label <- labels[ind]
-    save <- save_names[ind]
+    save <- str_c(" ", save_names[ind])
     
     for (reg_ind in 1:6){
       
@@ -1073,7 +1256,8 @@ for (loop in 1:2) {
       fe_vars <- if (loop == 1) c(fixed_effects, "int_year") else c(fixed_effects)
       
       hours_text <- "" 
-      if (var != "log_real_wkly_wage"){
+      if (!(var %in% c("log_real_wkly_wage", "health", "any_benefits",
+                       "hours_week", "part_time"))){
         ind_vars %<>% c(hours)
         hours_text <- " hours worked per week, part-time status,"
       }
@@ -1124,6 +1308,23 @@ for (loop in 1:2) {
         )
       )
       
+      if (reg_ind == 5) {
+        c_5 %<>% rbind(
+          cbind(format_val(temp$coefficients["outsourced"], r=3, s=3, star = stars),
+                format_val(temp$r.squared), format_n(lm_N(temp)), "\\\\"),
+          cbind(format_se(temp$std.error["outsourced"], r=3, s=3),
+                " & ", " & ", "\\\\[2pt]")
+        )
+      }
+      
+      if (reg_ind == 6) {
+        c_6 %<>% rbind(
+          cbind(format_val(temp$coefficients["outsourced"], r=3, s=3, star = stars),
+                format_val(temp$r.squared), format_n(lm_N(temp)), "\\\\"),
+          cbind(format_se(temp$std.error["outsourced"], r=3, s=3),
+                " & ", " & ", "\\\\[2pt]")
+        )
+      }
     }
     
     center %<>% cbind(
@@ -1142,6 +1343,7 @@ for (loop in 1:2) {
     bot <- str_c(
       "\\bottomrule
       \\end{tabular}
+      }
       \\caption{Regressions of outsourced on ", var_name, ". All regressions
   include controls for job type (traditional job is default), 
       a quartic in age, union status,", hours_text,
@@ -1150,7 +1352,7 @@ for (loop in 1:2) {
   The first two columns run OLS and also contain controls for
   race and education. The last four columns use worker fixed effects.
   All observations are at the ", sample, " level and all standard errors are
-  clustered by occupation category.
+  clustered by demographic sample.
   Stars represent significant at the .10 level *, .05 level **, and .01 level ***.}
   \\label{reg_" , label, s_label, "}
   \\end{table}
@@ -1162,6 +1364,76 @@ for (loop in 1:2) {
                 quote=F, col.names=F, row.names=F, sep="")
     
   }
+  
+  # Save Draft Tables
+  center_5 <- cbind(center_d, c_5)
+  center_6 <- cbind(center_d, c_6)
+  
+  # Do weird stuff to create LaTeX output
+  r_folder <- str_c(table_folder, "Junk/")
+  file_1 <- str_c(r_folder, "center.txt")
+  write.table(center_5, file_1, quote=T, col.names=F, row.names=F)
+  center_5 <- read.table(file_1, sep = "")
+  write.table(center_5, file_1, quote=F, col.names=F, row.names=F, sep = "")
+  center_5 <- readChar(file_1, nchars = 1e6)
+  
+  bot_5 <- str_c("\\bottomrule
+     \\end{tabular}
+     }
+     \\caption{Regressions of worker outsourcing status on job outcomes.
+     All regressions include controls for job type (traditional job is default), 
+     worker and occupation fixed effects, a quartic in age, union status,
+     dummies for region", y, ", whether in an MSA or central city,
+     marital status, and number of children total and in household. 
+     Regressions for log real hourly wages and job satisfaction also
+     include controls for hours worked per week and part-time status.
+  All observations are at the ", sample, " level,", s_explanation,
+    ". All regressions are weighted at the person level and all standard errors are
+  clustered by demographic sample.
+  Stars represent significant at the .10 level *, .05 level **, and .01 level ***.}
+  \\label{regs_no_tenure", s_label, "}
+  \\end{table}")
+  
+  write.table(str_c(s_table_top, top_d, center_5, bot_5),
+              str_c(d_table_folder, "Job Regressions ", s_save, " No Tenure.tex"),
+              quote=F, col.names=F, row.names=F, sep="")
+  
+  # Also save to Slides
+  write.table(str_c(s_table_top, top_d, center_5, s_bot),
+              str_c(s_table_folder, "Job Regressions ", s_save, " No Tenure.tex"),
+              quote=F, col.names=F, row.names=F, sep="")
+  
+  file_1 <- str_c(r_folder, "center.txt")
+  write.table(center_6, file_1, quote=T, col.names=F, row.names=F)
+  center_6 <- read.table(file_1, sep = "")
+  write.table(center_6, file_1, quote=F, col.names=F, row.names=F, sep = "")
+  center_6 <- readChar(file_1, nchars = 1e6)
+  
+  bot_6 <- str_c("\\bottomrule
+     \\end{tabular}
+     }
+     \\caption{Regressions of worker outsourcing status on job outcomes.
+     All regressions include controls for job type (traditional job is default), 
+     worker and occupation fixed effects, a quartic in age and job tenure, union status,
+     dummies for region", y, ", whether in an MSA or central city,
+     marital status, and number of children total and in household. 
+     Regressions for log real hourly wages and job satisfaction also
+     include controls for hours worked per week and part-time status.
+  All observations are at the ", sample, " level", s_explanation,
+    ". All regressions are weighted at the person level and all standard errors are
+  clustered by demographic sample.
+  Stars represent significant at the .10 level *, .05 level **, and .01 level ***.}
+  \\label{regs", s_label, "}
+  \\end{table}"  )
+  
+  write.table(str_c(d_table_top, top_d, center_6, bot_6),
+              str_c(d_table_folder, "Job Regressions ", s_save, ".tex"),
+              quote=F, col.names=F, row.names=F, sep="")
+  
+  # Also save to Slides
+  write.table(str_c(s_table_top, top_d, center_6, s_bot),
+              str_c(s_table_folder, "Job Regressions ", s_save, ".tex"),
+              quote=F, col.names=F, row.names=F, sep="")
 }
 
 # How much does type matter? Run full regression but add types in groups
@@ -1179,19 +1451,17 @@ keep_var <- function(model, var, keep) {
   }
 }
 
-top <- str_c(table_top, siunitx, 
-             "
-\\begin{tabular}{lSSS}
+top <- "\\begin{tabular}{lSSS}
 \\toprule
 & {Outsourced} & {Self-Employed} & {Full} \\\\\\midrule
 "
-)
 
 for (loop in 1:2) {
   
   sample <- samples[loop]
   s_label <- s_labels[loop]
   s_save <- s_saves[loop]
+  s_explanation <- s_explanations[loop]
   y <- if (loop == 1) " and year" else ""
   
   for (ind in seq_along(var_r)) {
@@ -1202,16 +1472,17 @@ for (loop in 1:2) {
     var <- var_r[ind]
     var_name <- var_names[ind]
     label <- labels[ind]
-    save <- save_names[ind]
+    save <- str_c(" ", save_names[ind])
     
-    for (reg_ind in 1:3){
+    for (reg_ind in c(1:3)){
       
       ind_vars <- c(controls, tenure)
       fe_vars <- c(fixed_effects, "case_id", "occ")
       fe_vars <- if (loop == 1) c(fe_vars, "int_year") else c(fe_vars)
       
       hours_text <- "" 
-      if (var != "log_real_wkly_wage"){
+      if (!(var %in% c("log_real_wkly_wage", "health", "hours_week", "part_time",
+                       "any_benefits"))){
         ind_vars %<>% c(hours)
         hours_text <- " hours worked per week, part-time status,"
       }
@@ -1269,22 +1540,37 @@ for (loop in 1:2) {
     bot <- str_c(
       "\\bottomrule
       \\end{tabular}
+      }
       \\caption{Regressions of job type on ", var_name, ". Missing type in final row 
       is traditional jobs. All regressions  use worker and occupation fixed effects and 
       include a quartic in age and job tenure, union status,", hours_text, 
       " dummies for region", y, ", whether in an MSA or central city,
       marital status, and number of children in household and total.
-      All observations are at the ", sample, " level and all standard errors are
-      clustered by occupation category.
+      All observations are at the ", sample, " level", s_explanation, 
+      ". All regressions are weighted at the person level and all standard errors are
+      clustered by demographic sample.
       Stars represent significant at the .10 level *, .05 level **, and .01 level ***.}
       \\label{type_reg_" , label, s_label, "}
-      \\end{table}
-      \\end{document}"
+      \\end{table}"
     )
     
-    write.table(str_c(top, center, bot),
+    write.table(str_c(table_top, siunitx, top, center, bot, "\n \\end{document}"),
                 str_c(table_folder, "NLSY79 Regressions/", s_save, save, " Types.tex"),
                 quote=F, col.names=F, row.names=F, sep="")
+    
+    # If looking at log real weekly wages, save in Drafts and Slides
+    if (ind == 2) {
+      write.table(str_c(d_table_top, top, center, bot),
+                  str_c(d_table_folder, "Job Regressions LRW Wages ",
+                        s_save, " Types.tex"),
+                  quote=F, col.names=F, row.names=F, sep="")
+      
+      # Table to long for slide, set size manually
+      write.table(str_c(d_table_top, "\n \\footnotesize \n", top, center, s_bot),
+                  str_c(s_table_folder, "Job Regressions LRW Wages ",
+                        s_save, " Types.tex"),
+                  quote=F, col.names=F, row.names=F, sep="")
+    }
     
     # Code sometimes very slow here. Maybe deleting some files will help
     rm("temp", "eq", "fe", "center", "ou", "se", "ic", "oc", "tw")
@@ -1325,8 +1611,6 @@ controls <- c("age", "I((age)^2)", "I((age)^3)", "I((age)^4)",
               "tot_child", "hh_child", "factor(union_fill)")
 
 hours <- c("hours_week", "part_time")
-
-ols_controls <- c("black", "hispanic", "hs", "aa", "ba", "plus_ba")
 
 tenure <- c("I((tenure/100))", "I((tenure/100)^2)", "I((tenure/100)^3)",
             "I((tenure/100)^4)")
@@ -1586,6 +1870,7 @@ center <- readChar(file_1, nchars = 1e6)
 bot <- str_c(
 "\\bottomrule
 \\end{tabular}
+}
 \\caption{Confidence intervals for variance and skew for residuals of regressions
 run on log real hourly and weekly wages divided by outsourced and not outsourced
 workers.}
@@ -1660,4 +1945,50 @@ temp <- df %>%
   theme_light(base_size = 16) 
 
 ggsave(str_c(figure_folder, "Jobs LRW Wage Residuals Traditional HO Occ v Not.pdf"),
+       height = height, width = width)
+
+
+# Residual LRW Wages vs Max Tenure ----------------------------------------
+
+# Plot Residual LRW Wages (without Tenure controls) vs Tenure
+# for outsourced and traditional
+types <- c("self_emp", "indep_con", "temp_work", "on_call")
+
+controls <- c("age", "I((age)^2)", "I((age)^3)", "I((age)^4)",
+              "tot_child", "hh_child", "factor(union_fill)")
+
+fixed_effects <- c("region", "marital_status", "msa", "occ", "case_id")
+
+eq <- create_formula("log_real_wkly_wage", c(types, controls))
+fe <- create_formula("~", fixed_effects)
+
+reg <- lm_robust(eq, data = matched_jobs,
+                 subset = !is.na(region) & !is.na(marital_status) &
+                   !is.na(msa) & !is.na(occ),
+                 weights = weight,
+                 fixed_effects = !!fe,
+                 clusters = sample_id, 
+                 se_type = "stata", try_cholesky = T)
+
+df <- matched_jobs %>% 
+  filter(!is.na(log_real_wkly_wage),  
+         !is.na(tot_child), !is.na(hh_child),
+         !is.na(union_fill), !is.na(region), !is.na(marital_status),
+         !is.na(msa), !is.na(occ)) %>% 
+  mutate(residual = lm_residuals(reg)) %>% 
+  filter(ever_ho_occ == 1, (outsourced == 1 | traditional == 1),
+         abs(residual) > 1e-12)
+
+temp <- df %>%
+  ggplot(aes(x = residual, y = max_tenure, color = factor(outsourced))) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "lm", formula = y ~ x) +
+  labs(x = str_c("Residual Log Real Weekly Wage"), y = "Max Tenure") +
+  scale_color_manual(name = "Job Type", breaks = c(0, 1),
+                     values = c("blue", "red"),
+                     labels = c("Traditional", "Outsourced")) +
+  theme_light(base_size = 16)
+
+ggsave(str_c(figure_folder,
+             "Jobs LRW Wage Residuals vs Max Tenure Ever HO Occupation.pdf"),
        height = height, width = width)

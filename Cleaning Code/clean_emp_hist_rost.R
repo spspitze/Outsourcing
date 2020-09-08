@@ -245,9 +245,10 @@ long %<>%
       1 * (ind >= 8500) + 1 * (ind >= 8700) + 1 * (ind >= 9300) + 1 * (ind >= 9600)
   ) %>% 
   # For missing combined, If other job years have combined, take averages (mode if category) 
-  group_by(case_id, emp_id) %>% 
-  mutate_at(fill_mean, fill_NA_mean) %>% 
-  mutate_at(fill_mode, fill_NA_mode) %>% 
+  # group_by(case_id, emp_id) %>% 
+  # mutate_at(fill_mean, fill_NA_mean) %>% 
+  # mutate_at(fill_mode, fill_NA_mode) %>% 
+  # ungroup() %>% 
   mutate(
     # Some 2014 and 2016 ind and occs seem to be missing 0's at end
     # Try to fill these in (some over 1000 look okay, leave these alone)
@@ -258,7 +259,6 @@ long %<>%
     # Create union_fill which is -1 if union is NA (useful for regression)
     union_fill = ifelse(is.na(union), -1, round(union))
   ) %>% 
-  ungroup() %>% 
   mutate(
     # If real wage below 3 or above 400 set wage and earn to NA
     # If hours_week is <=0 or >80, set to NA

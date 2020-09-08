@@ -660,11 +660,12 @@ long %<>%
   mutate(
     any_benefits = pmax(health, life, dental, maternity, retirement, flex_sched,
                         profit_share, train_school, childcare, na.rm = T)
-  ) %>% 
-  # For missing data, If other job years have data, take averages
-  group_by(case_id, emp_id) %>% 
-  mutate_at(vars_fill, fill_NA_mean) %>% 
-  ungroup() 
+  ) 
+# %>% 
+#   # For missing data, If other job years have data, take averages
+#   group_by(case_id, emp_id) %>% 
+#   mutate_at(vars_fill, fill_NA_mean) %>% 
+#   ungroup() 
 
 # # Data from 2014 and 2016 interviews in on jobs are less reliable. Drop these years
 # long %<>% filter(int_year < 2014) 
