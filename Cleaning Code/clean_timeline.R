@@ -55,6 +55,9 @@ long <- new_data %>%
   select(-variable) %>% 
   # If job_status is 0, have no info for this week. Drop these observations
   filter(job_status > 0) %>% 
+  # The first week begins in 2000 and ends in 2001. Causes some
+  # issues for month, year, and age, so filter it out
+  filter(week > base_week) %>% 
   # Turn week into a date
   # Create two variables. Working for working vs not working (drop unknowns)
   # For now, count active military service (== 7 as employed)

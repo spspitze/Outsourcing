@@ -31,6 +31,7 @@ s_table_folder <- "../Slides/Slide Tables/"
 table_top <- "\\documentclass[12pt]{article}
 \\usepackage[margin=.5in]{geometry}
 \\usepackage{booktabs}
+\\usepackage{graphicx}
 \\begin{document}
 \\begin{table}
 \\centering
@@ -277,7 +278,7 @@ match_rhs <- bind_rows(matches) %>%
 # Match and Clean Data ----------------------------------------------------
 
 fill_mean <- c("indep_con", "on_call", "outsourced", "self_emp", "temp_work",
-               "traditional", "ever_out_oj", "match_quality")
+               "traditional", "pre_trad", "ever_out_oj", "match_quality")
 
 View(matched %>% filter(match_flag_1))
 
@@ -314,7 +315,9 @@ matched <-
   # Make sure there are unique case_id, int_year, emp_id matches
   group_by(int_year, add = T) %>%
   mutate(count = n()) %>% 
-  ungroup() 
+  ungroup() %>% 
+  # Create pbs to mearure if industry is in professional business services
+  mutate(pbs = 1 * (ind >= 7270 & ind <= 7790))
 
 
 # Match Quality -----------------------------------------------------------
@@ -422,10 +425,10 @@ for (i in seq_along(obs)){
 bot <- "\\bottomrule
 \\end{tabular}
 }
-\\caption{The matching process for the Employer History Roster/Employer Supplement
-and number of person-interview-job observations lost/gained step by step.
+\\caption{The matching process for the Employer History Roster/Employer Supplement 
+of the NLSY and number of person-interview-job observations lost/gained step by step.
 An observation is considered matched with On Jobs if it is matched in at least one
-Interview}
+interview.}
 \\label{match}
 \\end{table}"
 
@@ -455,17 +458,17 @@ table <- str_c(
   str_c("On Jobs", 
         format_n(oj_missed),
         format_n(oj_obs),
-        format_val(oj_missed / oj_obs * 100, r = 0)),
+        format_val(oj_missed / oj_obs * 100)),
   " \\\\ \n",
   str_c("On Jobs with Information",
         format_n(oj_info_missed),
         format_n(oj_info),
-        format_val(oj_info_missed / oj_info * 100, r = 0)),
+        format_val(oj_info_missed / oj_info * 100)),
   " \\\\ \n",
   str_c("On Jobs Outsourced",
         format_n(oj_outsourced_missed),
         format_n(oj_outsourced),
-        format_val(oj_outsourced_missed / oj_outsourced * 100, r = 0)),
+        format_val(oj_outsourced_missed / oj_outsourced * 100)),
   " \\\\ \n"
   )
 
@@ -486,9 +489,11 @@ write.table(str_c(table_top, table, bot_oj),
 d_bot <- "\\bottomrule
 \\end{tabular}
 }
-\\caption{The matching quality from On Jobs section of final data set.
-Observations are at the person-interview-job level. Looks at total number unmatched,
-total unmatched with any job type information, and outsourced unmatched.}
+\\caption{The matching quality from On Jobs of the NLSY in the final data set.
+Observations are at the person-interview-job level. 
+A job is matched if is connected to a job from the 
+Employer History Roster/Employer Supplement. Jobs with information
+are any jobs in which the job type questionaire loop began.}
 \\label{oj_match}
 \\end{table}"
 
@@ -546,7 +551,7 @@ write.table(str_c(table_top, table, bot_q),
 d_bot <- "\\bottomrule
 \\end{tabular}
 }
-\\caption{Match quality of final dataset. Observations are at the
+\\caption{Match quality of final NLSY dataset. Observations are at the
 person-interview-job level. Match quality for each job is measured by the highest 
 quality match across interviews.}
 \\label{match_quality}
@@ -585,7 +590,7 @@ mode_vars <- c("ind", "occ", "ind_cat", "occ_cat", "marital_status", "msa", "reg
 
 min_vars <- c("week_start_job")
 
-max_vars <- c("week_end_job", "max_tenure")
+max_vars <- c("week_end_job", "max_tenure", "pre_trad")
 
 # Create mean, min, and max functions without na
 mean_na <- function(vector) mean(vector, na.rm = T)
@@ -605,7 +610,9 @@ matched_jobs <- list(.vars = lst(mean_vars, mode_vars, min_vars, max_vars),
   pmap(~ matched %>% group_by(case_id, emp_id) %>% summarise_at(.x, .y)) %>% 
   reduce(inner_join, by = c("case_id", "emp_id")) %>% 
   # Fix max_tenure -Inf as NA
-  mutate(max_tenure = ifelse(max_tenure >= 0, max_tenure, NA))
+  mutate(max_tenure = ifelse(max_tenure >= 0, max_tenure, NA))%>% 
+  # Create pbs to mearure if industry is in professional business services
+  mutate(pbs = 1 * (ind >= 7270 & ind <= 7790))
 
 # Drop uneeded variables
 matched <- matched %>% 
@@ -650,7 +657,7 @@ timeline <- timeline[, `:=`(age = year(week) - birth_year, birth_year = NULL)]
 # Create week_start/end_match to keep original data
 temp_match <- matched_jobs %>% 
   filter(female == 0) %>% 
-  select(case_id, emp_id, hours_week, part_time, occ, ind, tenure, max_tenure,
+  select(case_id, emp_id, hours_week, part_time, occ, ind, pbs, tenure, max_tenure,
          week_start_job, week_end_job, log_real_hrly_wage,
          log_real_wkly_wage, self_emp:traditional, 
          any_benefits, health, retirement, union, union_fill, job_sat,
@@ -670,7 +677,8 @@ timeline <- timeline[, `:=`(week_match = week, female = NULL)]
 # each interview (do this now)
 temp_match_r <- matched %>% 
   filter(female == 0) %>% 
-  select(case_id, emp_id, int_year, hours_week, part_time, occ, ind, tenure, max_tenure,
+  select(case_id, emp_id, int_year, hours_week, part_time, occ, ind, pbs,
+         tenure, max_tenure,
          week_start_job, week_end_job, log_real_hrly_wage,
          log_real_wkly_wage, self_emp:traditional, 
          any_benefits, health, retirement, union, union_fill, job_sat,
@@ -944,42 +952,6 @@ outsourcing_occ_ss <- outsourcing_occ %>%
     ho_occ = sum(ho_occ)
   )
 
-table <- str_c(
-  "\\begin{tabular}{lr}
-  \\toprule
-  Variable & Value \\\\ \\midrule
-  Occupations ", format_n(outsourcing_occ_ss$occupations), "\\\\\n",
-  "Percent of Workers Outsourced ", format_val(outsourcing_prevalence$outsourced_per, r = 2),
-  "\\\\\n",
-  "Occupations with any Outsourcing ", format_n(outsourcing_occ_ss$occupations_any),
-  "\\\\\n",
-  "Occupations with $\\geq$ 2$\\times$ Average Outsourcing ($\\geq$", 
-  round(2 * outsourcing_prevalence$outsourced_per, 2), "\\%) ",
-  format_n(outsourcing_occ_ss$ho_occ), "\\\\\n"
-)
-
-bot <- "\\bottomrule
-\\end{tabular}
-}
-\\caption{Outsourcing prevalence among occupations and workers.}
-\\label{outsourcing_occ}
-\\end{table}"
-
-write.table(str_c(table_top, table, bot, "\n \\end{document}"),
-            str_c(table_folder, "NLSY79 Occupation Info/Occupation Outsourcing.tex"),
-            quote=F, col.names=F, row.names=F, sep="")
-
-# Make one for Drafts
-write.table(str_c(d_table_top, table, bot),
-            str_c(d_table_folder, "Occupation Outsourcing.tex"),
-            quote=F, col.names=F, row.names=F, sep="")
-
-# Make one for Slides
-write.table(str_c(s_table_top, table, s_bot),
-            str_c(s_table_folder, "Occupation Outsourcing.tex"),
-            quote=F, col.names=F, row.names=F, sep="")
-
-
 # Match Occupation Outsourcing Info ---------------------------------------
 
 # Integrate occupation data into main datasets
@@ -1012,6 +984,58 @@ timeline[order(case_id, week),
          ever_ho_occ := 1 * any(ho_occ %in% T), by = .(case_id)] %>% 
   setcolorder(c("case_id", "week", "emp_id", "working", "unemployed",
                 "hours_week")) 
+
+# Find outsourcing prevalence in HO Occupations
+ho_outsourcing_prevalence <- timeline %>% 
+  filter(!is.na(outsourced), ho_occ == T) %>% 
+  as_survey_design(ids = case_id, weights=weight) %>%
+  summarise(
+    outsourced_per = survey_mean(outsourced * 100, vartype = "ci"),
+    ho_occ_per = survey_mean(ho_occ * 100, vartype = "ci"))
+
+# Save table
+table <- str_c(
+  "\\begin{tabular}{lr}
+  \\toprule
+  Variable & Value \\\\ \\midrule
+  \\textbf{All Occupations} & \\\\\n",
+  "Number ", format_n(outsourcing_occ_ss$occupations), "\\\\\n",
+  "Percent of Workers Outsourced ",
+  format_val(outsourcing_prevalence$outsourced_per),
+  "\\\\\n",
+  "Occupations with any Outsourcing ",
+  format_n(outsourcing_occ_ss$occupations_any),
+  "\\\\\n",
+  "\\textbf{High Outsourcing Occupations ($\\geq$", 
+  round(2 * outsourcing_prevalence$outsourced_per, 2), "\\%) } & \\\\\n",
+  "Number ", format_n(outsourcing_occ_ss$ho_occ), "\\\\\n",
+  "Percent of Jobs ", format_n(outsourcing_prevalence$ho_occ_per), "\\\\\n",
+  "Percent of Workers Outsourced ", 
+  format_val(ho_outsourcing_prevalence$outsourced_per),
+  "\\\\\n"
+)
+
+bot <- "\\bottomrule
+\\end{tabular}
+}
+\\caption{Outsourcing prevalence among occupations and workers in the NLSY.}
+\\label{outsourcing_occ}
+\\end{table}"
+
+write.table(str_c(table_top, table, bot, "\n \\end{document}"),
+            str_c(table_folder, "NLSY79 Occupation Info/Occupation Outsourcing.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Make one for Drafts
+write.table(str_c(d_table_top, table, bot),
+            str_c(d_table_folder, "Occupation Outsourcing.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Make one for Slides
+write.table(str_c(s_table_top, table, s_bot),
+            str_c(s_table_folder, "Occupation Outsourcing.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
 
 # Save datasets
 fwrite(matched, str_c(clean_folder, "matched.csv"), row.names = FALSE)

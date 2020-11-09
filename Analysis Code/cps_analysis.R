@@ -4,9 +4,14 @@
 # (according to NLSY 79 data in occ_timeline).
 # To compare cps occ2010 to nlsy (which uses 2000 census codes from 2001-2016),
 # use the occ2010 sheet of integrated_ind_occ_crosswalks
+# Cross walk comes from https://usa.ipums.org/usa/volii/occ_ind.shtml
+# Is the link "Crosswalks" in bullet reading
+# Crosswalks for OCC1950, OCC1990 or OCC2010 to the contemporary OCC codes
+# and for IND1950 or IND1990 to the contemporary IND codes.
 
 rm(list = ls())
 
+library(rlang)
 library(weights)
 library(BSDA)
 library(diagis)
@@ -19,6 +24,7 @@ library(data.table)
 library(lubridate)
 library(ipumsr)
 library(tidyverse)
+
 
 raw_folder <- "../Raw Data/"
 clean_folder <- "../Cleaned Data/"
@@ -146,10 +152,11 @@ table_top <- "\\documentclass[12pt]{article}
 \\usepackage[margin=.5in]{geometry}
 \\usepackage{siunitx}
 \\usepackage{booktabs}
+\\usepackage{graphicx}
 \\begin{document}
 \\begin{table}
-\\footnotesize
-\\centering \n"
+\\centering 
+\\resizebox{\\textwidth}{!}{ \n"
 
 # If using siunitx, include this too
 siunitx <- "\\sisetup{
@@ -228,6 +235,8 @@ cps %<>%
     # For occ2010 and ind1990, replace various NA's
     occ_2010 = ifelse(occ2010 != 9920, occ2010, NA),
     ind_1990 = ifelse(ind1990 != 0, ind1990, NA),
+    # Mark Industries in professional business services (in 1990)
+    pbs_1990 = 1 * (ind_1990 >= 721 & ind_1990 <= 760),
     # Find log_real_wkly/hrly_wage, drop NA's and below 3 /hr or 60/wk
     log_real_hrly_wage = 
       ifelse(hourwage != 999.99 & hourwage >= 3, log(hourwage / cpi * base_cpi), NA),
@@ -241,6 +250,12 @@ cps %<>%
   # Keep only variables needed
   select(year, month, wtfinl, cpsidp, age, earnwt,
          union, black:nlsy79)
+
+
+# Cross walk comes from https://usa.ipums.org/usa/volii/occ_ind.shtml
+# Is the link "Crosswalks" in bullet reading
+# Crosswalks for OCC1950, OCC1990 or OCC2010 to the contemporary OCC codes
+# and for IND1950 or IND1990 to the contemporary IND codes.
 
 # Read the crosswalk between occ_2010 and 2000 
 # (multiply 2000 by 10 to match with NLSY)
@@ -261,9 +276,31 @@ crosswalk <- read_excel(str_c(raw_folder, "integrated_ind_occ_crosswalks.xlsx"),
 # Merge with cps. Keep only occ_2000 as occ
 cps %<>% 
   left_join(crosswalk, by = "occ_2010")  %>% 
-  mutate(occ = occ_2000)
-# %>% 
-#   select(-occ_2010, -occ_2000)
+  mutate(occ = occ_2000) %>%
+  select(-occ_2010, -occ_2000)
+
+# Do the same for ind_1990 and ind_2000
+crosswalk <- read_excel(str_c(raw_folder, "integrated_ind_occ_crosswalks.xlsx"),
+                        sheet = "ind1990", na = "#") %>% 
+  select(ind_1990 = IND1990, ind_2000 = `2000`) %>% 
+  filter(!is.na(ind_1990), !is.na(ind_2000)) %>% 
+  mutate(
+    ind_1990 = as.numeric(ind_1990),
+    ind_2000 = as.numeric(ind_2000) * 10
+  ) %>% 
+  # Some ind_1990's match to multiple ind_2000. Keep only the lowest 2000 match
+  group_by(ind_1990) %>% 
+  filter(ind_2000 == min(ind_2000)) %>% 
+  ungroup()
+
+# Merge with cps. Keep only ind_2000 as ind. Create pbs for pbs industries
+# according to 2000 measure
+cps %<>% 
+  left_join(crosswalk, by = "ind_1990")  %>% 
+  mutate(
+    ind = ind_2000,
+    pbs = 1 * (ind >= 7270 & ind <= 7790)) %>%
+  select(-ind_1990, -ind_2000)
 
 # Get cleaned occ_timeline, which will be my measure of outsourcing over time
 occ_timeline_m <- read_csv(str_c(clean_folder, "occ_timeline_m.csv"),
@@ -290,12 +327,12 @@ occ_cps <- cps %>%
   group_by(year, month, occ) %>% 
   summarise(
     workers = sum(wtfinl),
-    log_real_wkly_wage = weighted_mean(log_real_wkly_wage, earnwt),
+    # log_real_wkly_wage = weighted_mean(log_real_wkly_wage, earnwt),
     union = weighted_mean(union, earnwt),
-    part_time = weighted_mean(part_time, wtfinl),
+    # part_time = weighted_mean(part_time, wtfinl),
     black = weighted_mean(black, wtfinl),
     hispanic = weighted_mean(hispanic, wtfinl),
-    age = weighted_mean(age, wtfinl),
+    age = weighted_mean(age, wtfinl)
   ) %>% 
   # What percent of workers are in this occupation?
   group_by(year, month) %>% 
@@ -311,12 +348,12 @@ occ_cps_nlsy <- cps %>%
   group_by(year, month, occ) %>% 
   summarise(
     workers = sum(wtfinl),
-    log_real_wkly_wage = weighted_mean(log_real_wkly_wage, earnwt),
+    # log_real_wkly_wage = weighted_mean(log_real_wkly_wage, earnwt),
     union = weighted_mean(union, earnwt),
-    part_time = weighted_mean(part_time, wtfinl),
+    # part_time = weighted_mean(part_time, wtfinl),
     black = weighted_mean(black, wtfinl),
     hispanic = weighted_mean(hispanic, wtfinl),
-    age = weighted_mean(age, wtfinl),
+    age = weighted_mean(age, wtfinl)
   ) %>% 
   # What percent of workers are in this occupation?
   group_by(year, month) %>% 
@@ -626,6 +663,116 @@ write.table(str_c(s_table_top, top, center, s_bot),
             quote=F, col.names=F, row.names=F, sep="")
 
 
+# PBS Regressions ---------------------------------------------------------
+
+# Run similar regressions to above us PBS instead of outsourced
+
+# Get NLSY data from pbs_timeline_m
+pbs_timeline_m <- read_csv(str_c(clean_folder, "pbs_timeline_m.csv"),
+                           col_types = cols(
+                             .default = col_double(),
+                             month = col_date(format = "")
+                           )) %>% 
+  mutate(
+    year = year(month),
+    month = month(month)
+  )
+
+occ_pbs <- cps %>% 
+  mutate(pbs = pbs_1990) %>% 
+  filter(working == 1, !is.na(occ), !is.na(pbs)) %>% 
+  group_by(year, month, occ, pbs) %>% 
+  summarise(
+    n = sum(wtfinl),
+    n_black = sum(black * wtfinl),
+    n_hispanic = sum(hispanic * wtfinl),
+    n_union = sum(union * wtfinl, na.rm = T),
+    n_union_defined = sum((!is.na(union) %in% T) * wtfinl),
+    tot_age = sum(age * wtfinl),
+    tot_age_2 = sum(age^2 * wtfinl)
+  ) %>% 
+  pivot_wider(names_from = c(pbs),
+              values_from = n:tot_age_2) %>%
+  ungroup() %>% 
+  mutate(
+    workers = r_sum(n_0, n_1),
+    pbs_per = ifelse(!is.na(n_1), n_1 / workers * 100, 0),
+    black_per = (
+      r_sum(n_black_0, n_black_1) / workers * 100),
+    hispanic_per = (
+      r_sum(n_hispanic_0, n_hispanic_1) / workers * 100),
+    union_per = (r_sum(n_union_0, n_union_1) / 
+                   r_sum(n_union_defined_0, n_union_defined_1)
+                 * 100),
+    age = (r_sum(tot_age_0, tot_age_1) / workers),
+    age_2 = (r_sum(tot_age_2_0, tot_age_2_1) / workers)
+  ) %>% 
+  group_by(year, month) %>% 
+  mutate(workers_per = workers / sum(workers) * 100)
+
+data_pbs <- list(occ_pbs, pbs_timeline_m)
+
+titles <- c("CPS", "NLSY 79")
+
+controls <- c("pbs_per", "black_per", "hispanic_per", "union_per", "age")
+
+fixed_effects <- c("I(year * month)", "occ")
+fe <- create_formula("", fixed_effects)
+
+eq <- create_formula("workers_per", controls)
+
+top <- "\\begin{tabular}{lSSS}
+\\toprule
+Data Set & {PBS Percent} & {$R^2$} & {Observations}   \\\\  \\midrule
+  "
+
+center <- ""
+
+for (i in 1:2){
+  
+  temp <- lm_robust(eq, data = data_pbs[[i]],
+                    fixed_effects = !!fe, clusters = occ, 
+                    se_type = "stata", try_cholesky = T)
+  
+  center %<>% str_c(
+    titles[i],
+    format_val(temp$coefficients["pbs_per"], r = 5, s = 5, 
+               star = p_stars(temp$p.value["pbs_per"])),
+    format_val(temp$r.squared), format_n(lm_N(temp)), "\\\\ \n",
+    format_se(temp$std.error["pbs_per"], r = 5, s = 5), " & & \\\\ \n"
+  )
+}
+
+bot <- str_c(
+  "\\bottomrule
+\\end{tabular}
+}
+\\caption{Occupation level regressions of percent in Professional Business Services (PBS)
+industries within an occupation on percent of workers in an occupation.
+PBS Industries in the CPS have Census 1990 Industry Codes between 721 and 760.
+PBS Industries in the NLSY 79 have Census 2000 Industry Codes between 7270 and 7790.
+Each regression contains controls for percent
+Black, Hispanic, and union member, average age, and occupation and month fixed effects.
+Regressions use robust standard errors clustered at the occupation level.
+Stars represent
+significant difference from 0 at the .10 level *, .05 level **, and .01 level ***.}
+\\label{occ_pbs_reg_month_cps}
+\\end{table}"
+)
+
+write.table(str_c(table_top, siunitx, top, center, bot, "\n \\end{document}"),
+            str_c(table_folder, "CPS/PBS Regressions.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Save to Drafts and Slides
+write.table(str_c(d_table_top, top, center, bot),
+            str_c(d_table_folder, "CPS PBS Regressions.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+write.table(str_c(d_table_top, top, center, s_bot),
+            str_c(s_table_folder, "CPS PBS Regressions.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
 # HO Occupation Summary Statistics ----------------------------------------
 
 # Look at summary statistics for HO Occupation Jobs/People vs not
@@ -703,7 +850,14 @@ vars_sum <- c(
 # Create a Latex table
 top <- "\\begin{tabular}{lSS}
 \\toprule
-& {High Outsourcing} & {Others} \\\\  \\midrule
+& {HO Occupation} & {Other Occupation} \\\\  \\midrule
+"
+
+# For Drafts and Slides, combine both tables
+c_top <- "\\begin{tabular}{lSSSS}
+\\toprule
+& \\multicolumn{2}{c}{{Whole Workforce}} & \\multicolumn{2}{c}{{NLSY Cohort}} \\\\
+& {HO Occupation} & {Other Occupation} & {HO Occupation} & {Other Occupation} \\\\  \\midrule
 "
 
 # Proportion varables
@@ -714,21 +868,23 @@ vars_p <- c("part_time", "union", "black", "hispanic",
 vars_earnwt <- c("log_real_hrly_wage", "log_real_wkly_wage", "union")
 
 saves <- c("", "NLSY Cohort ")
-descriptions <- c("for all male", "for NLSY 79 cohort (aged 14-22 in 1979) male")
+descriptions <- c("for all male", "for NLSY 79 cohort (born between 1957-1964) male")
 labels <- c("", "_nlsy")
+
+n_center <- rbind("Log Real", "Hourly Wage", "Log Real", 
+                "Weekly Wage", "Part-Time", "", "Union", "",
+                "Age", "", "Percent", "Black", "Percent", "Hispanic", 
+                "Less", "High School", "High School", "",
+                "Associates", "Degree", "Bachelor's", "Degree", "Plus", "Degree",
+                "Single", "", "Married", "", "Observations")
+
+c_center <- duplicate(n_center)
 
 for (j in 1:2) {
   
   save <- saves[j]
   desc <- descriptions[j]
   label <- labels[j]
-  
-  center <- rbind("Log Real", "Hourly Wage", "Log Real", 
-                  "Weekly Wage", "Part-Time", "", "Union", "",
-                  "Age", "", "Percent", "Black", "Percent", "Hispanic", 
-                  "Less", "High School", "High School", "",
-                  "Associates", "Degree", "Bachelor's", "Degree", "Plus", "Degree",
-                  "Single", "", "Married", "", "Observations")
   
   cond <- comp[[j]]$ho_occ == 1
   
@@ -750,7 +906,8 @@ for (j in 1:2) {
     
     c_i %<>% rbind(format_n(ho_ss[[j]]$n[i]))
     
-    center %<>% cbind(c_i)
+    center <- cbind(n_center, c_i)
+    c_center %<>% cbind(c_i)
   }
   
   center %<>% cbind(
@@ -759,9 +916,6 @@ for (j in 1:2) {
           "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
           "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
           "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\[2pt]"))
-  
-  # For Slides, keep only certain variables
-  s_center <- center[c(11:23, 28), ]
   
   # Do weird stuff to create LaTeX output
   j_folder <- str_c(table_folder, "Junk/")
@@ -775,9 +929,9 @@ for (j in 1:2) {
   \\bottomrule
   \\end{tabular}
   }
-  \\caption{Summary statistics ", desc, " workers divided by high outsourcing
-  (HO) occupations (all occupations with outsourcing more than 4.4\\% in the NLSY))
-  vs not from 2001-2016. Statstics are weighted at the person level.
+  \\caption{Summary statistics from the CPS ", desc, " workers divided by high outsourcing
+  (HO) occupations (all occupations with outsourcing more than 4.34\\% in the NLSY))
+  vs not from January 2001 - October 2016. Statstics are weighted at the person level.
   Stars represent significant difference from HO occupations at the .10 level *, 
   .05 level **, and .01 level ***.}
   \\label{ho_occ_cps", label, "}
@@ -788,27 +942,57 @@ for (j in 1:2) {
               str_c(table_folder, "CPS/HO Occupation ",
                     save, "Summary Statistics.tex"),
               quote=F, col.names=F, row.names=F, sep="")
-  
-  # Save in Drafts 
-  write.table(str_c(d_table_top, top, center, bot),
-              str_c(d_table_folder, "CPS HO Occupation ",
-                    save, "Summary Statistics.tex"),
-              quote=F, col.names=F, row.names=F, sep="")
-  
-  # Save in Slides (no resize)
-  # Do weird stuff to create LaTeX output
-  j_folder <- str_c(table_folder, "Junk/")
-  file_1 <- str_c(j_folder, "center.txt")
-  write.table(s_center, file_1, quote=T, col.names=F, row.names=F)
-  s_center <- read.table(file_1, sep = "")
-  write.table(s_center, file_1, quote=F, col.names=F, row.names=F, sep = "")
-  s_center <- readChar(file_1, nchars = 1e6)
-  
-  write.table(str_c(d_table_top, "\n \\footnotesize \n", top, s_center, s_bot),
-              str_c(s_table_folder, "CPS HO Occupation ",
-                    save, "Summary Statistics.tex"),
-              quote=F, col.names=F, row.names=F, sep="")
 }
+
+c_center %<>% cbind(
+  rbind("\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
+        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
+        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
+        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
+        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\[2pt]"))
+
+# For Slides, keep only certain variables
+s_center <- c_center[c(11:24, 29), ]
+
+c_bot <- str_c("
+  \\bottomrule
+  \\end{tabular}
+  }
+  \\caption{Summary statistics from the January 2001 - October 2016 CPS 
+  for all employed men age 18-65  and for those born between 1957-1964(NLSY cohort). 
+  Workers are divided by if they work in a high outsourcing (HO) occupation
+  (all occupations with outsourcing more than 4.34\\% in the NLSY).
+  Statstics are weighted at the person level.
+  Stars represent significant difference from HO occupations at the .10 level *, 
+  .05 level **, and .01 level ***.}
+  \\label{ho_occ_cps}
+  \\end{table}")
+
+# Save in Drafts 
+# Do weird stuff to create LaTeX output
+j_folder <- str_c(table_folder, "Junk/")
+file_1 <- str_c(j_folder, "center.txt")
+write.table(c_center, file_1, quote=T, col.names=F, row.names=F)
+c_center <- read.table(file_1, sep = "")
+write.table(c_center, file_1, quote=F, col.names=F, row.names=F, sep = "")
+c_center <- readChar(file_1, nchars = 1e6)
+
+write.table(str_c(s_table_top, c_top, c_center, c_bot),
+            str_c(d_table_folder, "CPS HO Occupation Summary Statistics.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Save in Slides (no resize)
+# Do weird stuff to create LaTeX output
+j_folder <- str_c(table_folder, "Junk/")
+file_1 <- str_c(j_folder, "center.txt")
+write.table(s_center, file_1, quote=T, col.names=F, row.names=F)
+s_center <- read.table(file_1, sep = "")
+write.table(s_center, file_1, quote=F, col.names=F, row.names=F, sep = "")
+s_center <- readChar(file_1, nchars = 1e6)
+
+write.table(str_c(s_table_top, c_top, s_center, s_bot),
+            str_c(s_table_folder, "CPS HO Occupation Summary Statistics.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
 
 # Wage Distribution ----------------------------------------------------
 

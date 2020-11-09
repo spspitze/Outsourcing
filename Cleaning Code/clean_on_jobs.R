@@ -1342,7 +1342,9 @@ long %<>%
         looped - pmax(self_emp, temp_work, on_call, outsourced, na.rm = T)
         ),
     # If NA for all job types, assume traditional
-    traditional = ifelse(is.na(traditional), looped, traditional)
+    traditional = ifelse(is.na(traditional), looped, traditional),
+    # If pre_trad is na, set to 0
+    pre_trad = ifelse(!is.na(pre_trad), pre_trad, 0)
     )
 
 
@@ -1443,7 +1445,7 @@ long %<>%
       ifelse(row_num > 1, rank + row_num - 1, rank)
     )
   ) %>% 
-  select(-job, -most_job, -pre_trad, -num_types, -current_job,
+  select(-job, -most_job, -num_types, -current_job,
          -tot_current, -rank_date, -row_num)
 
 # # Data from 2014 and 2016 interviews in on jobs are less reliable. Drop these years

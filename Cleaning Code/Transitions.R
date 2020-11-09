@@ -32,8 +32,8 @@ timeline <- read_csv(str_c(clean_folder, "matched_timeline.csv"),
 
 # First look at each job's first and last observation in the data
 # Order obervations by date
-first_last <- timeline[!is.na(emp_id)][,`:=`(first = 1 * (week == min(week)),
-                                             last = 1 * (week == max(week))),
+first_last <- timeline[!is.na(emp_id)][,`:=`(first = 1 * (week == min(week, na.rm = T)),
+                                             last = 1 * (week == max(week, na.rm = T))),
                                        by = .(case_id, emp_id)]
 
 first_last <- first_last[first == 1 | last == 1]
@@ -63,7 +63,10 @@ transition <- first_last[first == 1][, c(
 setkey(match, case_id, emp_id)
 setkey(transition, case_id, emp_id)
 
-transition %<>% merge(match, all.x = T)
+transition %<>% merge(match, all.x = T) 
+
+# Drop unranked jobs
+transition %<>% filter(!is.na(rank))
 
 # Merge previous jobs (Use tidyverse because data.table setkey acting weird)
 transition %<>% 
@@ -94,7 +97,7 @@ transition %<>%
     ever_out_m = ever_out_m_curr,
     ever_out_oj = ever_out_oj_curr,
     ever_ho_occ = ever_ho_occ_curr
-  )
+  ) 
   
 # Save the data
 write_csv(transition, str_c(clean_folder, "matched_transition.csv"))

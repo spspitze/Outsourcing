@@ -45,7 +45,7 @@ timeline <- read_csv(str_c(clean_folder, "matched_timeline.csv"),
                      )) %>% 
   data.table()
 
-# Create w_month and w_year from week in timeline (drop first observation
+# Create month and year from week in timeline (drop first observation
 # that looks like it's in 2000)
 timeline[year(week) > 2000, `:=`(month = floor_date(week, unit = "month"),
                                 year = floor_date(week, unit = "year"))]
@@ -171,6 +171,7 @@ table_top <- "\\documentclass[12pt]{article}
 \\usepackage[margin=.5in]{geometry}
 \\usepackage{siunitx}
 \\usepackage{booktabs}
+\\usepackage{graphicx}
 \\begin{document}
 \\begin{table}
 \\centering 
@@ -235,27 +236,70 @@ scale <- function(i) {
   }
 }
 
+# For Outsourced by week, show CWS and Katz and Krueger (2019) outsourcing levels
+# on time graphs
+# Get data from https://www.rsfjournal.org/content/rsfjss/5/5/132.full.pdf
+# Table 1
+date_2001 <- round_date(ymd("2001-02-15"), "week")
+date_2005 <- round_date(ymd("2005-02-15"), "week")
+date_2015 <- round_date(ymd("2015-10-30"), "week")
+date_2017 <- round_date(ymd("2017-05-15"), "week")
+
 for (i in seq_along(vars_time)) {
   
-  # 1. Percent of workers outsourced
-  temp <- timeline %>% 
-    filter(!is.na(outsourced), !is.na(.[[vars_time[i]]])) %>% 
-    as_survey_design(ids = case_id, weights=weight) %>% 
-    group_by_at(vars_time[i]) %>% 
-    summarise(outsourced_per = survey_mean(outsourced * 100, vartype = "ci")) %>% 
-    ggplot() +
-    geom_line(aes_string(x = vars_time[i], y = "outsourced_per"), color = "red",
-            n = 4) +
-    geom_line(aes_string(x = vars_time[i], y = "outsourced_per_upp"),
-              linetype="dashed", color = "red", n = 4) +
-    geom_line(aes_string(x = vars_time[i], y = "outsourced_per_low"), 
-              linetype="dashed", color = "red", n = 4) +
-    labs(x = vars_label[i], y = "Percent Outsourced") +
-    scale(i) +
-    theme_light(base_size = 16) 
-  
-  ggsave(str_c(figure_folder, "Outsourced ", vars_save[i], ".pdf"),
-         height = height, width = width)
+  # 1. Percent of workers outsourced 
+  # (do this separately for age, so we can add CWS/KK info)
+  if (i == 4) {
+    temp <- timeline %>% 
+      filter(!is.na(outsourced), !is.na(.[[vars_time[i]]])) %>% 
+      as_survey_design(ids = case_id, weights=weight) %>% 
+      group_by_at(vars_time[i]) %>% 
+      summarise(outsourced_per = survey_mean(outsourced * 100, vartype = "ci")) %>% 
+      ggplot() +
+      geom_line(aes_string(x = vars_time[i], y = "outsourced_per"), color = "red",
+                n = 4) +
+      geom_line(aes_string(x = vars_time[i], y = "outsourced_per_upp"),
+                linetype="dashed", color = "red", n = 4) +
+      geom_line(aes_string(x = vars_time[i], y = "outsourced_per_low"), 
+                linetype="dashed", color = "red", n = 4) +
+      labs(x = vars_label[i], y = "Percent Outsourced") +
+      scale(i) +
+      theme_light(base_size = 16) 
+    
+    ggsave(str_c(figure_folder, "Outsourced ", vars_save[i], ".pdf"),
+           height = height, width = width)
+  } else {
+    temp <- timeline %>% 
+      filter(!is.na(outsourced), !is.na(.[[vars_time[i]]])) %>% 
+      as_survey_design(ids = case_id, weights=weight) %>% 
+      group_by_at(vars_time[i]) %>% 
+      summarise(outsourced_per = survey_mean(outsourced * 100, vartype = "ci")) %>% 
+      ggplot() +
+      geom_line(aes_string(x = vars_time[i], y = "outsourced_per"), color = "red",
+              n = 4) +
+      geom_line(aes_string(x = vars_time[i], y = "outsourced_per_upp"),
+                linetype="dashed", color = "red", n = 4) +
+      geom_line(aes_string(x = vars_time[i], y = "outsourced_per_low"), 
+                linetype="dashed", color = "red", n = 4) +
+      geom_point(aes(x = date_2001, y = 1.1), size = 2, color = "black") +
+      geom_text(aes(x = date_2001, y = 1.025, hjust = 0,
+                    label = "CWS 2001"), size = 6) +
+      geom_point(aes(x = date_2005, y = 1.4), size = 2, color = "black") +
+      geom_text(aes(x = date_2005, y = 1.325, hjust = 0,
+                    label = "CWS 2005"), size = 6) +
+      geom_point(aes(x = date_2015, y = 2.5), size = 2, color = "black") +
+      geom_text(aes(x = date_2015, y = 2.425, hjust = 1,
+                    label = "Katz and Krueger (2019)"), size = 6) +
+      geom_point(aes(x = date_2017, y = 1.4), size = 2, color = "black") +
+      geom_text(aes(x = date_2017, y = 1.325, hjust = 1,
+                    label = "CWS 2017"), size = 6) +
+      labs(x = vars_label[i], y = "Percent Outsourced") +
+      scale(i) +
+      theme_light(base_size = 16) 
+    
+    ggsave(str_c(figure_folder, "Outsourced ", vars_save[i], ".pdf"),
+           height = height, width = width)
+  }
   
   # 2. Percent of workers in HO occupations 
   temp <- timeline %>% 
@@ -374,7 +418,7 @@ for (i in seq_along(vars_time)) {
   # 8. Number of workers in all job types
   breaks <- c("outsourced_per", "indep_con_per", "temp_work_per", "on_call_per")
   labels <- c("Outsourced", "Independent Contractor", "Temp Worker", "On-Call Worker")
-  colors <- c( "blue", "dark green", "red", "purple")
+  colors <- c( "red", "dark green", "orange", "purple")
   
   temp <- timeline %>% 
     filter(!is.na(outsourced), !is.na(indep_con), 
@@ -398,6 +442,26 @@ for (i in seq_along(vars_time)) {
     theme_light(base_size = 16) 
   
   ggsave(str_c(figure_folder, "All Types ", vars_save[i], ".pdf"),
+         height = height, width = width)
+  
+  # 9. What percent of workers are in PBS industries?
+  temp <- timeline %>% 
+    filter(!is.na(pbs), !is.na(.[[vars_time[i]]])) %>% 
+    as_survey_design(ids = case_id, weights=weight) %>% 
+    group_by_at(vars_time[i]) %>% 
+    summarise(pbs_per = survey_mean(pbs * 100, vartype = "ci")) %>% 
+    ggplot() +
+    geom_line(aes_string(x = vars_time[i], y = "pbs_per"), color = "red",
+              n = 4) +
+    geom_line(aes_string(x = vars_time[i], y = "pbs_per_upp"),
+              linetype="dashed", color = "red", n = 4) +
+    geom_line(aes_string(x = vars_time[i], y = "pbs_per_low"), 
+              linetype="dashed", color = "red", n = 4) +
+    labs(x = vars_label[i], y = "Percent PBS") +
+    scale(i) +
+    theme_light(base_size = 16) 
+  
+  ggsave(str_c(figure_folder, "PBS ", vars_save[i], ".pdf"),
          height = height, width = width)
 }
 
@@ -469,8 +533,41 @@ temp <- timeline %>%
 ggsave(str_c(figure_folder, "Outsourced by Year Born.pdf"),
        height = height, width = width)
 
+# Plot weekly percent outsourced for only new jobs (started after 2001)
+# to get around pre-assignment of traditional
+temp <- timeline %>% 
+  filter(!is.na(outsourced), !is.na(week), week_start_job >= ymd("2001-01-01")) %>% 
+  as_survey_design(ids = case_id, weights=weight) %>% 
+  group_by(week) %>% 
+  summarise(outsourced_per = survey_mean(outsourced * 100, vartype = "ci")) %>% 
+  ggplot() +
+  geom_line(aes(x = week, y = outsourced_per), color = "red",
+            n = 4) +
+  geom_line(aes(x = week, y = outsourced_per_upp),
+            linetype="dashed", color = "red", n = 4) +
+  geom_line(aes(x = week, y = outsourced_per_low), 
+            linetype="dashed", color = "red", n = 4) +
+  geom_point(aes(x = date_2001, y = 1.1), size = 2, color = "black") +
+  geom_text(aes(x = date_2001, y = 1.025, hjust = 0,
+                label = "CWS 2001"), size = 6) +
+  geom_point(aes(x = date_2005, y = 1.4), size = 2, color = "black") +
+  geom_text(aes(x = date_2005, y = 1.325, hjust = 0,
+                label = "CWS 2005"), size = 6) +
+  geom_point(aes(x = date_2015, y = 2.5), size = 2, color = "black") +
+  geom_text(aes(x = date_2015, y = 2.425, hjust = 1,
+                label = "Katz and Krueger (2019)"), size = 6) +
+  geom_point(aes(x = date_2017, y = 1.4), size = 2, color = "black") +
+  geom_text(aes(x = date_2017, y = 1.325, hjust = 1,
+                label = "CWS 2017"), size = 6) +
+  labs(x = "Year", y = "Percent Outsourced") +
+  scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
+  theme_light(base_size = 16) 
+
+ggsave(str_c(figure_folder, "Outsourced Week New Jobs.pdf"),
+       height = height, width = width)
+
 # Try to free some space to run all at once
-rm("temp", "breaks", "labels", "colors", "filter_ages", "scale")
+rm("temp", "breaks", "labels", "colors", "scale")
 
 # Weekly Characteristics -------------------------------------------
 
@@ -859,7 +956,11 @@ occ_timeline <- timeline %>%
   summarise(
     ho_occ = mean(ho_occ),
     n = sum(weight),
+    sd_log_real_hrly_wage = sd(log_real_hrly_wage, na.rm = T),
+    sd_log_real_wkly_wage = sd(log_real_wkly_wage, na.rm = T),
+    log_real_hrly_wage = mean(log_real_hrly_wage, na.rm = T),
     log_real_wkly_wage = mean(log_real_wkly_wage, na.rm = T),
+    job_sat = mean(job_sat, na.rm = T),
     hours_week = mean(hours_week, na.rm = T),
     part_time = mean(part_time, na.rm = T),
     tenure = mean(tenure, na.rm = T),
@@ -1133,12 +1234,13 @@ controls <- c("outsourced_per", "self_emp_per", "indep_con_per",
 fixed_effects <- c("week", "occ")
 fe <- create_formula("", fixed_effects)
 
-outcomes <- c("log_real_wkly_wage", "tenure", "part_time", "hours_week",
-              "health", "retirement", "any_benefits")
+outcomes <- c("log_real_hrly_wage", "log_real_wkly_wage",
+              "hours_week", "part_time", "job_sat", "any_benefits",
+              "health")
 
-outcome_names <- c("Log Real Weekly Wage", "Weeks Tenure", "Part-Time Status",
-                   "Hours Worked", "Health Insurance", "Retirement Benefits",
-                   "Any Benefits")
+outcome_names <- c("Log Real Hourly Wage", "Log Real Weekly Wage", "Hours Worked",
+                   "Part-Time Status", "Job Satisfaction (Lower Better)",
+                   "Any Benefits", "Health Insurance")
 
 # Create a table with regression results, starting with workers_per
 top <- "\\begin{tabular}{lSSS}
@@ -1150,6 +1252,8 @@ eq <- create_formula("workers_per", controls)
 
 temp <- lm_robust(eq, data = occ_timeline, fixed_effects = !!fe,
                   clusters = occ, se_type = "stata", try_cholesky = T)
+
+mean_w <- mean(occ_timeline$workers_per)
 
 center <- rbind(
   cbind("Percent of Workers", 
@@ -1200,7 +1304,7 @@ for (out in 0:1){
 }
 
 # For slides, only keep certain rows
-s_center <- center[c(1:5, 12:13, 18:20, 27:28),]
+s_center <- center[c(1:5, 16:20, 31:32),]
 
 center %<>% cbind(
   rbind("\\\\", "\\\\[2pt] \\midrule", "\\\\[2pt]", "\\\\", "\\\\[2pt]", 
@@ -1225,7 +1329,8 @@ bot <- str_c(
 \\end{tabular}
 }
 \\caption{Occupation level regressions of percent outsourced within occupation
-each week on average job characteristics. Each regression contains controls for percent 
+each week on average job characteristics in the NLSY.
+Each regression contains controls for percent 
 in other alternative job types (ie. independent contractor, temp workers), percent
 Black, Hispanic, and union member, average age, and occupation and week fixed effects.
 Regressions use robust standard errors clustered at the occupation level. 
@@ -1278,7 +1383,11 @@ occ_timeline_y <- timeline %>%
   summarise(
     ho_occ = mean(ho_occ),
     n = sum(weight),
+    sd_log_real_hrly_wage = sd(log_real_hrly_wage, na.rm = T),
+    sd_log_real_wkly_wage = sd(log_real_wkly_wage, na.rm = T),
+    log_real_hrly_wage = mean(log_real_hrly_wage, na.rm = T),
     log_real_wkly_wage = mean(log_real_wkly_wage, na.rm = T),
+    job_sat = mean(job_sat, na.rm = T),
     hours_week = mean(hours_week, na.rm = T),
     part_time = mean(part_time, na.rm = T),
     tenure = mean(tenure, na.rm = T),
@@ -1344,12 +1453,13 @@ controls <- c("outsourced_per", "self_emp_per", "indep_con_per",
 fixed_effects <- c("year", "occ")
 fe <- create_formula("", fixed_effects)
 
-outcomes <- c("log_real_wkly_wage", "tenure", "part_time", "hours_week",
-              "health", "retirement", "any_benefits")
+outcomes <- c("log_real_hrly_wage", "log_real_wkly_wage",
+              "hours_week", "part_time", "job_sat", "any_benefits",
+              "health")
 
-outcome_names <- c("Log Real Weekly Wage", "Weeks Tenure", "Part-Time Status",
-                   "Hours Worked", "Health Insurance", "Retirement Benefits",
-                   "Any Benefits")
+outcome_names <- c("Log Real Hourly Wage", "Log Real Weekly Wage", "Hours Worked",
+                   "Part-Time Status", "Job Satisfaction (Lower Better)",
+                   "Any Benefits", "Health Insurance")
 
 # Create a table with regression results, starting with workers_per
 top <- str_c(table_top, siunitx, 
@@ -1364,6 +1474,8 @@ eq <- create_formula("workers_per", controls)
 
 temp <- lm_robust(eq, data = occ_timeline_y, fixed_effects = !!fe,
                   clusters = occ, se_type = "stata", try_cholesky = T)
+
+mean_y <- mean(occ_timeline_y$workers_per)
 
 center <- rbind(
   cbind("Percent of Workers", 
@@ -1428,7 +1540,8 @@ bot <- str_c(
 \\end{tabular}
 }
 \\caption{Occupation level regressions of percent outsourced within an occupation
-each year on average job characteristics. Each regression contains controls for percent 
+each year on average job characteristics in the NLSY.
+Each regression contains controls for percent 
 in other alternative job types (ie. independent contractor, temp workers), percent
 Black, Hispanic, and union member, average age, and occupation and year fixed effects.
 Regressions use robust standard errors clustered at the occupation level. 
@@ -1478,7 +1591,11 @@ occ_timeline_r <- timeline_r %>%
   group_by(week, occ, outsourced, self_emp, indep_con, temp_work, on_call) %>%
   summarise(
     n = sum(weight),
+    sd_log_real_hrly_wage = sd(log_real_hrly_wage, na.rm = T),
+    sd_log_real_wkly_wage = sd(log_real_wkly_wage, na.rm = T),
+    log_real_hrly_wage = mean(log_real_hrly_wage, na.rm = T),
     log_real_wkly_wage = mean(log_real_wkly_wage, na.rm = T),
+    job_sat = mean(job_sat, na.rm = T),
     hours_week = mean(hours_week, na.rm = T),
     part_time = mean(part_time, na.rm = T),
     tenure = mean(tenure, na.rm = T),
@@ -1543,12 +1660,13 @@ controls <- c("outsourced_per", "self_emp_per", "indep_con_per",
 fixed_effects <- c("week", "occ")
 fe <- create_formula("", fixed_effects)
 
-outcomes <- c("log_real_wkly_wage", "tenure", "part_time", "hours_week",
-              "health", "retirement", "any_benefits")
+outcomes <- c("log_real_hrly_wage", "log_real_wkly_wage",
+              "hours_week", "part_time", "job_sat", "any_benefits",
+              "health")
 
-outcome_names <- c("Log Real Weekly Wage", "Weeks Tenure", "Part-Time Status",
-                   "Hours Worked", "Health Insurance", "Retirement Benefits",
-                   "Any Benefits")
+outcome_names <- c("Log Real Hourly Wage", "Log Real Weekly Wage", "Hours Worked",
+                   "Part-Time Status", "Job Satisfaction (Lower Better)",
+                   "Any Benefits", "Health Insurance")
 
 # Create a table with regression results, starting with workers_per
 top <- "\\begin{tabular}{lSSS}
@@ -1560,6 +1678,8 @@ eq <- create_formula("workers_per", controls)
 
 temp <- lm_robust(eq, data = occ_timeline_r, fixed_effects = !!fe,
                   clusters = occ, se_type = "stata", try_cholesky = T)
+
+mean_w_r <- mean(occ_timeline_r$workers_per)
 
 center <- rbind(
   cbind("Percent of Workers", 
@@ -1610,7 +1730,7 @@ for (out in 0:1){
 }
 
 # For slides, only keep certain rows
-s_center <- center[c(1:5, 12:13, 18:20, 27:28),]
+s_center <- center[c(1:5, 16:20, 31:32),]
 
 center %<>% cbind(
   rbind("\\\\", "\\\\[2pt] \\midrule", "\\\\[2pt]", "\\\\", "\\\\[2pt]", 
@@ -1634,7 +1754,8 @@ bot <- str_c(
 \\end{tabular}
 }
 \\caption{Occupation level regressions of percent outsourced within occupation
-each week on average job characteristics. Each regression contains controls for percent 
+each week on average job characteristics in the NLSY.
+Each regression contains controls for percent 
 in other alternative job types (ie. independent contractor, temp workers), percent
 Black, Hispanic, and union member, average age, and occupation and week fixed effects.
 Regressions use robust standard errors clustered at the occupation level. 
@@ -1673,6 +1794,199 @@ s_center <- readChar(file_1, nchars = 1e6)
 
 write.table(str_c(s_table_top, top, s_center, s_bot),
             str_c(s_table_folder, "NLSY79 Occupation Regressions Robust.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+
+# Also create a small table saving average workers_per of each occupation 
+# for context
+table <- str_c("\\begin{tabular}{lS}
+\\toprule
+Measure & {Workers Percent}  \\\\  \\midrule
+Monthly", format_val(mean_w), "\\\\
+Yearly", format_val(mean_y), "\\\\
+Monthly Robust", format_val(mean_w_r), "\\\\ \\bottomrule
+\\end{tabular}
+}
+\\caption{Average percent of workers in each occupation. Put regressions in context}
+\\label{workers_per}
+\\end{table}")
+
+write.table(str_c(table_top, siunitx, table, "\n \\end{document}"),
+            str_c(table_folder,
+                  "NLSY79 Occupation Info/Occupation Workers Per.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# PBS Occupation Characteristics vs Outsourcing (CPS Comparison) ---------------------------
+
+# At monthly level, does percent of occupation in PBS industries
+# effect workers? Save this dataset to compare with CPS
+# Unweighted
+pbs_timeline_m <- timeline %>%
+  # filter(year(week) <= 2012) %>% 
+  filter(!is.na(occ), !is.na(pbs)) %>%
+  group_by(month, occ, pbs) %>%
+  summarise(
+    n = sum(weight),
+    sd_log_real_hrly_wage = sd(log_real_hrly_wage, na.rm = T),
+    sd_log_real_wkly_wage = sd(log_real_wkly_wage, na.rm = T),
+    log_real_hrly_wage = mean(log_real_hrly_wage, na.rm = T),
+    log_real_wkly_wage = mean(log_real_wkly_wage, na.rm = T),
+    job_sat = mean(job_sat, na.rm = T),
+    hours_week = mean(hours_week, na.rm = T),
+    part_time = mean(part_time, na.rm = T),
+    tenure = mean(tenure, na.rm = T),
+    health = mean(health, na.rm = T),
+    retirement = mean(retirement, na.rm = T),
+    any_benefits = mean(any_benefits, na.rm = T),
+    n_black = sum(black * weight),
+    n_hispanic = sum(hispanic * weight),
+    n_union = sum(union * weight, na.rm = T),
+    n_union_defined = sum((!is.na(union) %in% T) * weight),
+    tot_age = sum(age * weight),
+    tot_age_2 = sum((age ^ 2) * weight)
+  ) %>%
+  pivot_wider(names_from = c(pbs),
+              values_from = n:tot_age_2) %>%
+  ungroup() %>% 
+  mutate(
+    workers = r_sum(n_0, n_1),
+    pbs_per = ifelse(!is.na(n_1), n_1 / workers * 100, 0),
+    black_per = (
+      r_sum(n_black_0, n_black_1) / workers * 100),
+    hispanic_per = (
+      r_sum(n_hispanic_0, n_hispanic_1) / workers * 100),
+    union_per = (r_sum(n_union_0, n_union_1) / 
+                   r_sum(n_union_defined_0, n_union_defined_1)
+                 * 100),
+    age = (r_sum(tot_age_0, tot_age_1) / workers),
+    age_2 = (r_sum(tot_age_2_0, tot_age_2_1) / workers)
+  ) %>% 
+  group_by(month) %>% 
+  mutate(workers_per = workers / sum(workers) * 100) %>% 
+  group_by(occ) %>% 
+  mutate(average_size = mean(workers_per)) %>% 
+  ungroup() %>% 
+  filter(!is.na(month))
+
+# Save pbs_timeline_m in cleaned_data to compare with cps data
+write_csv(pbs_timeline_m, str_c(clean_folder, "pbs_timeline_m.csv"))
+
+# Recreate Regressions
+
+# How do these correlations change with controls? Run regressions
+controls <- c("pbs_per", "black_per", "hispanic_per", "union_per", "age")
+
+fixed_effects <- c("month", "occ")
+fe <- create_formula("", fixed_effects)
+
+outcomes <- c("log_real_hrly_wage", "log_real_wkly_wage",
+              "hours_week", "part_time", "job_sat", "any_benefits",
+              "health")
+
+outcome_names <- c("Log Real Hourly Wage", "Log Real Weekly Wage", "Hours Worked",
+                   "Part-Time Status", "Job Satisfaction (Lower Better)",
+                   "Any Benefits", "Health Insurance")
+
+# Create a table with regression results, starting with workers_per
+top <- str_c(table_top, siunitx,
+             "
+\\begin{tabular}{lSSS}
+\\toprule
+Dependent Variable & {PBS Percent} & {$R^2$} & {Observations}   \\\\  \\midrule
+"
+)
+
+eq <- create_formula("workers_per", controls)
+
+temp <- lm_robust(eq, data = pbs_timeline_y, fixed_effects = !!fe,
+                  clusters = occ, se_type = "stata", try_cholesky = T)
+
+center <- rbind(
+  cbind("Percent of Workers",
+        format_val(temp$coefficients["pbs_per"],
+                   p_stars(temp$p.value["pbs_per"]), r = 5, s = 5),
+        format_val(temp$r.squared), format_n(lm_N(temp))
+  ),
+  cbind("in Occupation",
+        format_se(temp$std.error["pbs_per"], r = 5, s = 5),
+        " & ", " & "
+  )
+)
+
+for (out in 0:1){
+  for (i in seq_along(outcomes)){
+
+    # Set heading for section
+    if (i == 1) {
+      if (out == 0) {
+        center %<>% rbind(
+          cbind("\\textbf{Non-PBS Jobs}", " & ", " & ", " & " )
+        )
+      } else {
+        center %<>% rbind(
+          cbind("\\textbf{PBS Jobs}", " & ", " & ", " & " )
+        )
+      }
+    }
+
+    outcome <- str_c(outcomes[i], "_", out)
+    eq <- create_formula(outcome, controls)
+
+    temp <- lm_robust(eq, data = pbs_timeline_y, fixed_effects = !!fe,
+                      clusters = occ, se_type = "stata", try_cholesky = T)
+
+    center %<>% rbind(
+      cbind(outcome_names[i],
+            format_val(temp$coefficients["pbs_per"],
+                       p_stars(temp$p.value["pbs_per"]), r = 4, s = 4),
+            format_val(temp$r.squared), format_n(lm_N(temp))
+      ),
+      cbind("",
+            format_se(temp$std.error["pbs_per"], r = 4, s = 4),
+            " & ", " & "
+      )
+    )
+  }
+}
+
+center %<>% cbind(
+  rbind("\\\\", "\\\\[2pt] \\midrule", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
+        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
+        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt] \\midrule",
+        "\\\\[2pt]", "\\\\", "\\\\[2pt]",
+        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
+        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]"
+  )
+)
+
+bot <- str_c(
+  "\\bottomrule
+\\end{tabular}
+}
+\\caption{Occupation level regressions of percent in Professional Bussiness Services (PBS)
+industries within an occupation each month on average job characteristics in the NLSY.
+PBS Industries have Census 2000 Industry Codes between 7270 and 7790.
+Each regression contains controls for percent
+Black, Hispanic, and union member, average age, and occupation and month fixed effects.
+Regressions use robust standard errors clustered at the occupation level.
+Stars represent
+significant difference from 0 at the .10 level *, .05 level **, and .01 level ***.}
+\\label{occ_pbs_reg_month}
+\\end{table}
+\\end{document}"
+)
+
+# Do weird stuff to create LaTeX output
+t_folder <- str_c(table_folder, "Junk/")
+file_1 <- str_c(t_folder, "center.txt")
+write.table(center, file_1, quote=T, col.names=F, row.names=F)
+center <- read.table(file_1, sep = "")
+write.table(center, file_1, quote=F, col.names=F, row.names=F, sep = "")
+center <- readChar(file_1, nchars = 1e6)
+
+write.table(str_c(top, center, bot),
+            str_c(table_folder,
+                  "NLSY79 Occupation Info/Occupation PBS Regressions Yearly.tex"),
             quote=F, col.names=F, row.names=F, sep="")
 
 
@@ -1808,8 +2122,82 @@ occ_timeline_r_m <- timeline_r %>%
   ungroup() %>% 
   filter(!is.na(month))
 
-# Save occ_timeline_week in cleaned_data to compare with cps data
+# Save occ_timeline_r_m in cleaned_data to compare with cps data
 write_csv(occ_timeline_r_m, str_c(clean_folder, "occ_timeline_robust_m.csv"))
+
+# Katz and Krueger --------------------------------------------------------
+
+# From Katz and Krueger (2019), look at workers by job types (Table 2)
+
+# How common is each job type? Take the average of all person-job-weeks
+type_prevalence <- timeline %>% 
+  filter(!is.na(outsourced)) %>% 
+  as_survey_design(ids = case_id, weights=weight) %>%
+  summarise(
+    outsourced = survey_mean(outsourced * 100),
+    self_emp = survey_mean(self_emp * 100),
+    indep_con = survey_mean(indep_con * 100),
+    temp_work = survey_mean(temp_work * 100),
+    on_call = survey_mean(on_call * 100),
+    traditional = survey_mean(traditional * 100)
+    )
+
+vars <- c("outsourced", "indep_con", "temp_work", "on_call", 
+          "self_emp", "traditional")
+
+names <- c("Contracted Out", "Independent Contractor", "Temp Worker",
+           "On-Call Worker", "Self-Employed", "Traditional Employee" )
+
+table <- "\\begin{tabular}{lSSS}
+\\toprule
+Job Type & {NLSY} & {CWS 2005} & {Katz and Krueger (2019)} \\\\ \\midrule
+"
+
+# Import values from CWS and KK 
+# https://www.rsfjournal.org/content/rsfjss/5/5/132.full.pdf
+# Table 1
+cws <- c(format_it(1.4), format_it(7.0), format_it(0.9), format_it(1.7),
+         format_it(10.8), "{--}")
+kk <- c(format_it(2.5), format_it(7.2), format_it(1.7), format_it(2.4),
+        format_it(9.2), "{--}")
+
+
+for (i in seq_along(vars)) {
+  
+  se <- str_c(vars[i], "_se")
+  
+  table %<>% str_c(
+    names[i], format_val(type_prevalence[[vars[i]]]),
+    " & ", cws[i], " & ", kk[i], " \\\\ \n",
+    format_se(type_prevalence[[se]]), " & & \\\\[2pt] \n"
+  )
+}
+
+bot <- "\\bottomrule
+\\end{tabular}
+}
+\\caption{Percent of weekly job-person observations in each job type in the NLSY.
+Observations weighted at the person level. Other values are from
+Contingent Worker Survey (CWS) 2005 and \\citet{katz2019b} Table 1 using their 
+alternative weight 2, which reweights to match the CPS in self-employment 
+and multiple job holders. Note that our NLSY data separates self-employment as
+its own job type while both CWS and KK do not, so we could not determine how many
+workers are in traditional jobs for these sources.}
+\\label{per_job_types}
+\\end{table}"
+
+write.table(str_c(table_top, siunitx, table, bot, "\n \\end{document}"),
+            str_c(table_folder, "NLSY79 Job Types/Job Type Percentages.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Save to Drafts and Slides
+write.table(str_c(d_table_top, table, bot),
+            str_c(d_table_folder, "Job Type Percentages.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+write.table(str_c(s_table_top, table, s_bot),
+            str_c(s_table_folder, "Job Type Percentages.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
 
 # Individual's Percent Outsourcing ----------------------------------------
 
@@ -1832,10 +2220,9 @@ outsourcing_per_mean <- weighted.mean(outsourcing_per$outsourcing_per,
 
 temp <- outsourcing_per %>% 
   ggplot() +
-  geom_density(aes(outsourcing_per, weight = weight), 
-               alpha = 0.4, fill = "blue", bounds = c(0, 100)) +
+  geom_histogram(aes(outsourcing_per), bins = 40, alpha = 0.4, fill = "blue") +
   geom_vline(aes(xintercept = outsourcing_per_mean), size = 1) +
-  geom_text(aes(x = outsourcing_per_mean + 1, y = .016, hjust = 0,
+  geom_text(aes(x = outsourcing_per_mean + 1, y = 50, hjust = 0,
                 label = str_c("Mean = ", round(outsourcing_per_mean, 2))),
             size = 6) +
   labs(x = "Percent of Weeks Worked Outsourced", y = "Density") +
