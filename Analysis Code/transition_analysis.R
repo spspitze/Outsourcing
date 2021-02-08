@@ -1244,9 +1244,9 @@ Variables & {Basic}  & {Job Info} & {Occ FE}   & {Basic} & {Job Info} & {Occ FE}
 
 # Create an s_top with just the final regression for both 
 # weeks to job and weeks to job == 1
-s_top <- "\\begin{tabular}{lSS}
+s_top <- "\\begin{tabular}{lSSS}
 \\toprule
-Variables & {Weeks to Job}  & {Job-Job Transition} \\\\\\midrule
+Variables & {Weeks to Job} & {Weeks to Job ($>1$)} & {Job-Job Transition} \\\\\\midrule
 "
 
 # Type of job (compare to traditional)
@@ -1290,10 +1290,11 @@ worker_t <- c("No", "Yes")
 center <- rbind("Outsourced", "Current", "Outsourced", "Previous",
                   "Job Info", "Occupation FE", "Worker FE", "$R^2$", "Obs")
 
-vars <- c("weeks_job_prev", "I(weeks_job_prev == 1)")
-var_save <- c("Weeks to Find Job", "Job to Job Transition")
-labels <- c("_weeks_between_jobs", "_job_to_job")
-descriptions <- c("weeks to find current job",
+vars <- c("weeks_job_prev", "wj_prev", "I(weeks_job_prev == 1)")
+var_save <- c("Weeks to Find Job", "Weeks to Find Job G1",
+              "Job to Job Transition")
+labels <- c("_weeks_between_jobs", "_weeks_between_jobs_g1", "_job_to_job")
+descriptions <- c("weeks to find current job", "weeks to find current job (>1 week)",
                   "probability of job to job transition")
 
 c_s <- c()
@@ -1464,8 +1465,9 @@ bot <- "\\bottomrule
   \\end{tabular}
   }
   \\caption{Regressions of outsourced at current and previous job on 
-  weeks to find current job and probability of job to job transition in the NLSY. They 
-  contain current and previous job variables: job type (reported coefficients are 
+  weeks to find current job (both overall and conditional on taking more than
+  one week) and probability of job to job transition in the NLSY. Each regression 
+  contains current and previous job variables: job type (reported coefficients are 
   compared to traditional jobs), fixed effects for occupation, hours worked per week, 
   part-time status, log real weekly wage, union status, and
   whether received health insurance, retirement benefits, or any benefits. They also
@@ -1525,6 +1527,11 @@ top <- "\\begin{tabular}{lSSS|SSS}
 \\toprule
 Outcome & {Outsourced Currently} & {$R^2$}  & {Observations} & {Outsourced Previously} 
 & {$R^2$}  & {Observations} \\\\\\midrule \n"
+
+# For Slides, just show previous regression
+top_s <- "\\begin{tabular}{lSSS}
+\\toprule
+Outcome & {Outsourced Previously} & {$R^2$}  & {Observations} \\\\\\midrule \n"
 
 c_curr <- c()
 c_prev <- c()
@@ -1587,6 +1594,7 @@ for (ind in seq_along(var_r)) {
   )
 }
 
+center_s <- cbind(center, c_prev)
 center %<>% cbind(c_curr, c_prev)
 
 bot <- "\\bottomrule
@@ -1602,7 +1610,7 @@ bot <- "\\bottomrule
      Regressions for log real hourly wages and job satisfaction also
      include controls for hours worked per week and part-time status.
   All observations are at the person-job level, 
-  where jobs observed more than once use average characteristics. 
+  where jobs observed more than once use average or modal characteristics. 
   All regressions are weighted at the person level and all standard errors are
   clustered by demographic sample.
   Stars represent significant at the .10 level *, .05 level **, and .01 level ***.}
@@ -1617,6 +1625,14 @@ center <- read.table(file_1, sep = "")
 write.table(center, file_1, quote=F, col.names=F, row.names=F, sep = "")
 center <- readChar(file_1, nchars = 1e6)
 
+# For Slides, just save Previous
+r_folder <- str_c(table_folder, "Junk/")
+file_1 <- str_c(r_folder, "center.txt")
+write.table(center_s, file_1, quote=T, col.names=F, row.names=F)
+center_s <- read.table(file_1, sep = "")
+write.table(center_s, file_1, quote=F, col.names=F, row.names=F, sep = "")
+center_s <- readChar(file_1, nchars = 1e6)
+
 # Save to Folder, Drafts, and Slides
 write.table(str_c(table_top, siunitx, top, center, bot, "\n \\end{document}"), 
             str_c(table_folder, 
@@ -1628,6 +1644,6 @@ write.table(str_c(s_table_top, top, center, bot),
             quote=F, col.names=F, row.names=F, sep="")
 
 # Also save to Slides
-write.table(str_c(s_table_top, top, center, s_bot),
-            str_c(s_table_folder, "Current and Previous Outsourced Regressions.tex"),
+write.table(str_c(s_table_top, top_s, center_s, s_bot),
+            str_c(s_table_folder, "Previous Outsourced Regressions.tex"),
             quote=F, col.names=F, row.names=F, sep="")

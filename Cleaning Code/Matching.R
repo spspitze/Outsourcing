@@ -89,6 +89,12 @@ weights <- read_table2(str_c(raw_folder, "customweight.dat"),
 demographics <- read_csv(str_c(clean_folder, "demographics_clean.csv"),
                          col_types = cols(.default = col_double()))
 
+# Because main dataset only looking at men, get gender by case_id
+dem_gender <- demographics %>% 
+  select(case_id, female) %>% 
+  group_by(case_id) %>% 
+  unique()
+
 # Data from On Jobs 
 on_jobs <- read_csv(str_c(clean_folder, "on_jobs_clean.csv"),
                     col_types = cols(
@@ -323,36 +329,45 @@ matched <-
 # Match Quality -----------------------------------------------------------
 
 # How good is the match? Create some tables showing match quality from
-# both sides (OJ and EHR/ES)
+# both sides (OJ and EHR/ES). Make sure to only look at men for match quality
+
+# First join in female to look only at men, who make up main dataset
+hist_rost <- left_join(hist_rost, dem_gender, by = "case_id")
+emp_sup <- left_join(emp_sup, dem_gender, by = "case_id")
+on_jobs <- left_join(on_jobs, dem_gender, by = "case_id")
 
 # Total jobs in each survey
-ehr_es_obs <- NROW(ehr_es)
-ehr_obs <- NROW(hist_rost)
-es_obs <- NROW(emp_sup)
-oj_obs <- NROW(on_jobs)
+ehr_es_obs <- NROW(ehr_es[ehr_es$female == 0,])
+ehr_obs <- NROW(hist_rost[hist_rost$female == 0,])
+es_obs <- NROW(emp_sup[emp_sup$female == 0,])
+oj_obs <- NROW(on_jobs[on_jobs$female == 0,])
 
 # What is overlap/exclusion between hist_rost and emp_sup
-only_ehr_obs <- NROW(
-  anti_join(hist_rost, emp_sup, by = c("case_id", "int_year", "emp_id")))
+only_ehr_obs <- hist_rost %>% 
+  anti_join(emp_sup, by = c("case_id", "int_year", "emp_id")) %>% 
+  filter(female == 0) %>% 
+  NROW()
 
-only_es_obs <- NROW(
-  anti_join(emp_sup, hist_rost, by = c("case_id", "int_year", "emp_id")))
+only_es_obs <- emp_sup %>% 
+  anti_join(hist_rost, by = c("case_id", "int_year", "emp_id")) %>% 
+  filter(female == 0) %>% 
+  NROW()
 
 both_es_ehr_obs <- ehr_obs - only_ehr_obs
 
 # Jobs in ehr/es not matched with oj
-unmatched_obs <- sum(is.na(matched$match_quality))
+unmatched_obs <- sum(is.na(matched$match_quality[matched$female == 0]))
 
 matched <- filter(matched, !is.na(match_quality))
 
 # Jobs dropped from match because start/end dates don"t align
-flag_1_obs <- sum(matched$match_flag_1)
+flag_1_obs <- sum(matched$match_flag_1[matched$female == 0])
 
 matched %<>% filter(match_flag_1 == F)
 
 # Jobs dropped from match because no or conflicting job
 # type info
-flag_2_obs <- sum(matched$match_flag_2)
+flag_2_obs <- sum(matched$match_flag_2[matched$female == 0])
 
 matched %<>% 
   filter(match_flag_2 == F) %>%
@@ -370,29 +385,33 @@ ever_out_count <- matched %>%
   count()
 
 # Create a match_quality table
-m_q_table <- table(matched$match_quality)
-looped_m_q_table <- table(matched$match_quality[matched$looped == 1])
+m_q_table <- table(matched$match_quality[matched$female == 0])
+looped_m_q_table <- table(matched$match_quality[matched$looped == 1 &
+                                                matched$female == 0])
 # For now, no quality 8 matches. Turn into factor to capture 0
 outsourced_m_q_table <- table(
-  factor(matched$match_quality[matched$outsourced == 1],
+  factor(matched$match_quality[matched$outsourced == 1 & matched$female == 0],
          levels = c("1", "2", "3", "4", "5", "6", "7", "8", "9")))
 
 # Look at oj missed
 on_jobs_miss <- on_jobs %>%
-  anti_join(matched, by = c("case_id", "int_year", "rank" = "job_oj"))
+  anti_join(matched, by = c("case_id", "int_year", "rank" = "job_oj")) %>% 
+  filter(female == 0)
 
 # Total jobs matched
-m_obs <- NROW(matched)
-m_outsourced <- sum(matched$outsourced)
+m_obs <- NROW(matched[matched$female == 0,])
+m_outsourced <- sum(matched$outsourced[matched$female == 0])
 
 # How many missed, how many with info missed, how many outsourcing missed
 # Note that we should account for jobs matched using same type within year
-oj_missed <- NROW(on_jobs_miss) - looped_m_q_table[["8"]]
-oj_info <- sum(!is.na(on_jobs$looped))
-oj_info_missed <- sum(!is.na(on_jobs_miss$looped)) - looped_m_q_table[["8"]]
-oj_outsourced <- sum(on_jobs$outsourced, na.rm = T)
+oj_missed <- NROW(on_jobs_miss[on_jobs_miss$female == 0,]) - looped_m_q_table[["8"]]
+oj_info <- sum(!is.na(on_jobs$looped[on_jobs_miss$female == 0]))
+oj_info_missed <- (sum(!is.na(on_jobs_miss$looped[on_jobs_miss$female == 0])) 
+                   - looped_m_q_table[["8"]])
+oj_outsourced <- sum(on_jobs$outsourced[on_jobs$female == 0], na.rm = T)
 oj_outsourced_missed <-
-  sum(on_jobs_miss$outsourced, na.rm = T) - outsourced_m_q_table[["8"]]
+  (sum(on_jobs_miss$outsourced[on_jobs$female == 0], na.rm = T) 
+   - outsourced_m_q_table[["8"]])
 
 # Create Tables
 
@@ -458,17 +477,17 @@ table <- str_c(
   str_c("On Jobs", 
         format_n(oj_missed),
         format_n(oj_obs),
-        format_val(oj_missed / oj_obs * 100)),
+        format_val(oj_missed / oj_obs * 100, r = 2, s= 2)),
   " \\\\ \n",
   str_c("On Jobs with Information",
         format_n(oj_info_missed),
         format_n(oj_info),
-        format_val(oj_info_missed / oj_info * 100)),
+        format_val(oj_info_missed / oj_info * 100, r = 2, s= 2)),
   " \\\\ \n",
   str_c("On Jobs Outsourced",
         format_n(oj_outsourced_missed),
         format_n(oj_outsourced),
-        format_val(oj_outsourced_missed / oj_outsourced * 100)),
+        format_val(oj_outsourced_missed / oj_outsourced * 100, r = 2, s= 2)),
   " \\\\ \n"
   )
 
@@ -493,7 +512,7 @@ d_bot <- "\\bottomrule
 Observations are at the person-interview-job level. 
 A job is matched if is connected to a job from the 
 Employer History Roster/Employer Supplement. Jobs with information
-are any jobs in which the job type questionaire loop began.}
+are any jobs in which the job type questionnaire loop began.}
 \\label{oj_match}
 \\end{table}"
 
@@ -566,11 +585,11 @@ write.table(str_c(s_table_top, "\n \\small \n", table, s_bot),
             str_c(s_table_folder, "/Match Quality.tex"),
             quote=F, col.names=F, row.names=F, sep="")
 
-# What is match quality by int_year?
-mq_year <- matched %>% 
-  group_by(int_year) %>% 
-  count(match_quality) %>% 
-  pivot_wider(names_from = c(int_year), values_from = c(n))
+# # What is match quality by int_year? (Just to look at)
+# mq_year <- matched %>% 
+#   group_by(int_year) %>% 
+#   count(match_quality) %>% 
+#   pivot_wider(names_from = c(int_year), values_from = c(n))
 
 
 # Create Matched Jobs -----------------------------------------------------
@@ -622,28 +641,31 @@ matched <- matched %>%
 
 # Remove uneeded data sets to free up memory
 rm("matches", "match_rhs", "on_jobs_miss", "ever_out_count", "match_list",
-   "on_jobs", "ehr_es", "emp_sup", "hist_rost", 
+   "on_jobs", "ehr_es", "emp_sup", "hist_rost", "dem_gender",
    "si", "om", "p_m", "bot", "oj_info", "oj_info_missed", "oj_missed",
    "oj_obs", "m_q_table", "obs", "match_base", "labels", "end", "fill_mean",
-   "bot_oj", "bot_q", "mean_vars", "mode_vars", "max_vars", "min_vars")
+   "bot_oj", "bot_q", "mean_vars", "mode_vars", "max_vars", "min_vars", "mq_year")
 
 # Merge Timeline With Job Info --------------------------------------------
 
 # Merge job info from hist_rost using start and end weeks
 # Because merging based on a condition, easier to use data.table
+# Only merge males because otherwise data set is too big
 
 # Timeline data (make sure week is a date)
 timeline <- fread(str_c(clean_folder, "timeline_clean.csv"), 
                   colClasses = list(
                     double = c(1:2, 4:5),
                     Date = c("week")
-                  ))
+                  )) %>% 
+  filter(female == 0) %>% 
+  select(-female)
 
 # Merge demographic info + weights first
 demographics_merge <- demographics %>% 
+  filter(female == 0) %>% 
   group_by(case_id) %>% 
-  filter(int_year == min(int_year),
-         female == 0) %>% 
+  filter(int_year == min(int_year)) %>% 
   select(case_id:birth_year, hh_child:tot_child, less_hs:educ_other) %>% 
   select(-female)
   
@@ -656,7 +678,6 @@ timeline <- timeline[, `:=`(age = year(week) - birth_year, birth_year = NULL)]
 
 # Create week_start/end_match to keep original data
 temp_match <- matched_jobs %>% 
-  filter(female == 0) %>% 
   select(case_id, emp_id, hours_week, part_time, occ, ind, pbs, tenure, max_tenure,
          week_start_job, week_end_job, log_real_hrly_wage,
          log_real_wkly_wage, self_emp:traditional, 
@@ -666,38 +687,35 @@ temp_match <- matched_jobs %>%
          week_end_match = week_end_job) %>% 
   data.table()
 
-# For space reasons, only match males
 # Create week match so week stays in dataset
-timeline <- timeline[female == 0, ]
-timeline <- timeline[, `:=`(week_match = week, female = NULL)]
+timeline <- timeline[, `:=`(week_match = week)]
 
 # An aside, the main dataset connects to matched_jobs, so
 # job characteristics do not change over time (as in the model)
 # For robustness, also match to matched, so characteristics change
 # each interview (do this now)
-temp_match_r <- matched %>% 
-  filter(female == 0) %>% 
+temp_match_r <- matched %>%
   select(case_id, emp_id, int_year, hours_week, part_time, occ, ind, pbs,
          tenure, max_tenure,
          week_start_job, week_end_job, log_real_hrly_wage,
-         log_real_wkly_wage, self_emp:traditional, 
+         log_real_wkly_wage, self_emp:traditional,
          any_benefits, health, retirement, union, union_fill, job_sat,
          ever_out_oj, ever_out_m) %>%
   mutate(week_start_match = week_start_job,
-         week_end_match = week_end_job) %>% 
+         week_end_match = week_end_job) %>%
   data.table()
 
 timeline_r <- temp_match_r[timeline,
-                           on = .(case_id == case_id, 
+                           on = .(case_id == case_id,
                                   week_start_match <= week_match,
-                                  week_end_match >= week_match), 
+                                  week_end_match >= week_match),
                            allow.cartesian = T]
 
 # Back to main match
 timeline <- temp_match[timeline,
-                      on = .(case_id == case_id, 
+                      on = .(case_id == case_id,
                              week_start_match <= week_match,
-                             week_end_match >= week_match), 
+                             week_end_match >= week_match),
                       allow.cartesian = T]
 
 rm(temp_match, temp_match_r, weights_t, demographics, demographics_merge)
@@ -711,10 +729,10 @@ timeline <- timeline[working == 0,
                        "self_emp", "temp_work", "on_call", "traditional")
                      := NA]
 
-timeline_r <- timeline_r[working == 0, 
+timeline_r <- timeline_r[working == 0,
                      c("emp_id", "outsourced", "tenure", "log_real_wkly_wage",
                        "log_real_hrly_wage", "hours_week", "part_time",
-                       "week_start_job", "week_end_job", "indep_con",
+                       "week_start_job", "week_end_job", "indep_con",  "occ",
                        "self_emp", "temp_work", "on_call", "traditional")
                      := NA]
 
@@ -742,7 +760,7 @@ for (var in vars) {
   timeline_week_conflict <- timeline_week_conflict[
     (get(var) == max) %in% T | (non_na == 0)]
   
-  timeline_week_conflict_r <- 
+  timeline_week_conflict_r <-
     timeline_week_conflict_r[, `:=`(max = max(get(var), na.rm = T),
                                   non_na = sum(!is.na(get(var)))),
                            by = .(case_id, week)]
@@ -756,9 +774,9 @@ timeline_week_conflict <-
 timeline_week_conflict <- timeline_week_conflict[(emp_id == max) %in% T] 
 timeline_week_conflict <- timeline_week_conflict[,c("max", "non_na") := NULL]
 
-timeline_week_conflict_r <- 
+timeline_week_conflict_r <-
   timeline_week_conflict_r[, max := min(emp_id, na.rm = T), by = .(case_id, week)]
-timeline_week_conflict_r <- timeline_week_conflict_r[(emp_id == max) %in% T] 
+timeline_week_conflict_r <- timeline_week_conflict_r[(emp_id == max) %in% T]
 timeline_week_conflict_r <- timeline_week_conflict_r[,c("max", "non_na") := NULL]
                                                  
 # Merge back into main data set
@@ -766,8 +784,8 @@ timeline <- bind_rows(timeline[obs <= 1], timeline_week_conflict) %>%
   select(-obs) %>% 
   data.table()
 
-timeline_r <- bind_rows(timeline_r[obs <= 1], timeline_week_conflict_r) %>% 
-  select(-obs) %>% 
+timeline_r <- bind_rows(timeline_r[obs <= 1], timeline_week_conflict_r) %>%
+  select(-obs) %>%
   data.table()
 
 # # Check how many observations each week
@@ -809,9 +827,9 @@ timeline <- timeline[,c("emp_id_next", "emp_id_prev") := shift(.SD, c(-1,1)),
                      by = case_id, .SDcols = "emp_id"]
 
 timeline_r <- timeline_r[order(week)]
-timeline_r <- timeline_r[,c("working_next", "working_prev") := shift(.SD, c(-1,1)), 
+timeline_r <- timeline_r[,c("working_next", "working_prev") := shift(.SD, c(-1,1)),
                      by = case_id, .SDcols = "working"]
-timeline_r <- timeline_r[,c("emp_id_next", "emp_id_prev") := shift(.SD, c(-1,1)), 
+timeline_r <- timeline_r[,c("emp_id_next", "emp_id_prev") := shift(.SD, c(-1,1)),
                      by = case_id, .SDcols = "emp_id"]
 
 # Mark start/end as week if prev/next working is 0 or NA or if emp_id prev/next exists
@@ -852,7 +870,7 @@ week_max <- round_date(ymd("2016-10-08"), "week")
 # # dropping as week_max
 # week_max <- round_date(ymd("2012-09-18"), "week")
 
-# Graph observations
+# Graph observations (just graph men for final data set)
 temp <- timeline %>% 
   group_by(week) %>% 
   summarise(working_obs = sum(working, na.rm = T), 
@@ -879,6 +897,63 @@ timeline <- timeline[week <= week_max]
 
 timeline_r <- timeline_r[week <= week_max]
 
+
+# Observations ------------------------------------------------------------
+
+# How many observations? Number of workers, worker-jobs,
+# worker-job-interviews, and worker-week
+
+# Worker Level
+num_worker <- matched_jobs %>% 
+  group_by(case_id) %>% 
+  summarise(female = mean(female)) %>% 
+  group_by(female) %>% 
+  count() %>% 
+  arrange(female)
+
+# Worker-job Level
+num_worker_job <- matched_jobs %>% 
+  group_by(case_id, emp_id) %>% 
+  summarise(female = mean(female)) %>% 
+  group_by(female) %>% 
+  count() %>% 
+  arrange(female)
+
+# Worker-job-interview Level
+num_worker_job_interview <- matched %>% 
+  group_by(female) %>% 
+  count() %>% 
+  arrange(female)
+  
+  table <- "\\begin{tabular}{lSS}
+\\toprule
+Level & Just Men & Men + Women \\\\ \\midrule
+"
+
+table <- str_c(
+  table,
+  "Worker", format_n(num_worker$n[1]), format_n(num_worker$n[1] + num_worker$n[2]),
+  " \\\\ \n",
+  "Worker-Job", format_n(num_worker_job$n[1]), 
+  format_n(num_worker_job$n[1] + num_worker_job$n[2]), " \\\\ \n",
+  "Worker-Job-Interview", format_n(num_worker_job_interview$n[1]), 
+  format_n(num_worker_job_interview$n[1] + num_worker_job_interview$n[2]),
+  " \\\\ \n",
+  "Worker-Week", format_n(NROW(timeline)), "& {--}", " \\\\ \n"
+)
+
+
+bot <- "\\bottomrule
+\\end{tabular}
+}
+\\caption{The number of observations in final data sets.}
+\\label{observations}
+\\end{table}
+\\end{document}"
+
+write.table(str_c(table_top, table, bot),
+            str_c(table_folder, "NLSY79 Match Quality/Number of Observations.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
 # Outsourcing Prevalence --------------------------------------------------
 
 # How common is outsourcing? Take the average of all person-job-weeks
@@ -1009,7 +1084,8 @@ table <- str_c(
   "\\textbf{High Outsourcing Occupations ($\\geq$", 
   round(2 * outsourcing_prevalence$outsourced_per, 2), "\\%) } & \\\\\n",
   "Number ", format_n(outsourcing_occ_ss$ho_occ), "\\\\\n",
-  "Percent of Jobs ", format_n(outsourcing_prevalence$ho_occ_per), "\\\\\n",
+  "Percent of Jobs ", format_val(
+    outsourcing_occ_ss$ho_occ / outsourcing_occ_ss$occupations * 100), "\\\\\n",
   "Percent of Workers Outsourced ", 
   format_val(ho_outsourcing_prevalence$outsourced_per),
   "\\\\\n"

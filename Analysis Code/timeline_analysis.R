@@ -215,10 +215,10 @@ s_bot <- "\\bottomrule
 # 2. Percent of workers in HO occupations 
 # 3. Percent of workers in HO occupations  who are outsourced 
 # 4. Log weekly wages of outsourced v traditional workers in HO occupations  
-# 5. Weeks of tenure of outsourced v traditional workers in HO occupations 
-# 6. Number of workers unemployed based on ever HO occupations 
-# 7. Number of workers not working based on ever HO occupations 
-# 8. Number of workers in all job types
+# 5. Number of workers unemployed based on ever HO occupations 
+# 6. Number of workers not working based on ever HO occupations 
+# 7. Number of workers in all job types
+# 8. Number of workers in PBS industries
 
 vars_time <- c("week", "month", "year", "age")
 vars_save <- c("Week", "Month", "Year", "Age")
@@ -365,7 +365,7 @@ for (i in seq_along(vars_time)) {
   ggsave(str_c(figure_folder, "Ever HO Occupation Weekly Wages ", vars_save[i], ".pdf"),
          height = height, width = width)
 
-  # 6. Number of workers unemployed based on ever HO occupations 
+  # 5. Number of workers unemployed based on ever HO occupations 
   temp <- timeline %>% 
     filter(!is.na(.[[vars_time[i]]])) %>% 
     as_survey_design(ids = case_id, weights=weight) %>% 
@@ -390,7 +390,7 @@ for (i in seq_along(vars_time)) {
   ggsave(str_c(figure_folder, "Unemployed ", vars_save[i], ".pdf"),
          height = height, width = width)
   
-  # 7. Number of workers not working based on ever HO occupations 
+  # 6. Number of workers not working based on ever HO occupations 
   temp <- timeline %>% 
     filter(!is.na(.[[vars_time[i]]])) %>% 
     as_survey_design(ids = case_id, weights = weight) %>% 
@@ -415,7 +415,7 @@ for (i in seq_along(vars_time)) {
   ggsave(str_c(figure_folder, "Not Working ", vars_save[i], ".pdf"),
          height = height, width = width)
   
-  # 8. Number of workers in all job types
+  # 7. Number of workers in all job types
   breaks <- c("outsourced_per", "indep_con_per", "temp_work_per", "on_call_per")
   labels <- c("Outsourced", "Independent Contractor", "Temp Worker", "On-Call Worker")
   colors <- c( "red", "dark green", "orange", "purple")
@@ -444,7 +444,7 @@ for (i in seq_along(vars_time)) {
   ggsave(str_c(figure_folder, "All Types ", vars_save[i], ".pdf"),
          height = height, width = width)
   
-  # 9. What percent of workers are in PBS industries?
+  # 8. What percent of workers are in PBS industries?
   temp <- timeline %>% 
     filter(!is.na(pbs), !is.na(.[[vars_time[i]]])) %>% 
     as_survey_design(ids = case_id, weights=weight) %>% 
@@ -2125,6 +2125,442 @@ occ_timeline_r_m <- timeline_r %>%
 # Save occ_timeline_r_m in cleaned_data to compare with cps data
 write_csv(occ_timeline_r_m, str_c(clean_folder, "occ_timeline_robust_m.csv"))
 
+# Occupation Characterstics at Monthly Level Bartik Instruments -------------
+
+# Create monthly bartik instruments for share of workers outsourced
+# within each occuption by dividing the US into the 4 regions
+# (Northeast, Midwest, South, and West). 
+# For instrument, need 
+# 1. Leave-one-out occupation share of outsourcing each period
+# 2. January 2001 (first month) share of occupation in region
+occ_timeline_bartik <- timeline %>%
+  # filter(year(week) <= 2012) %>% 
+  filter(!is.na(occ), !is.na(outsourced)) %>%
+  group_by(region, month, occ, outsourced, self_emp, indep_con, temp_work, on_call) %>%
+  summarise(
+    ho_occ = mean(ho_occ),
+    n = sum(weight),
+    log_real_hrly_wage = mean(log_real_hrly_wage, na.rm = T),
+    log_real_wkly_wage = mean(log_real_wkly_wage, na.rm = T),
+    hours_week = mean(hours_week, na.rm = T),
+    part_time = mean(part_time, na.rm = T),
+    tenure = mean(tenure, na.rm = T),
+    health = mean(health, na.rm = T),
+    retirement = mean(retirement, na.rm = T),
+    any_benefits = mean(any_benefits, na.rm = T),
+    n_black = sum(black * weight),
+    n_hispanic = sum(hispanic * weight),
+    n_union = sum(union * weight, na.rm = T),
+    n_union_defined = sum((!is.na(union) %in% T) * weight),
+    tot_age = sum(age * weight),
+    tot_age_2 = sum((age ^ 2) * weight)
+  ) %>%
+  pivot_wider(names_from = c(outsourced, self_emp, indep_con, temp_work, on_call),
+              values_from = n:tot_age_2) %>%
+  ungroup() %>% 
+  # Rename pivot table so easier to reference 
+  rename_at(vars(ends_with("_0_0_0_0_0")), ~ str_replace(., "_0_0_0_0_0", "_0")) %>% 
+  rename_at(vars(ends_with("_1_0_0_0_0")), ~ str_replace(., "_1_0_0_0_0", "_1")) %>% 
+  rename_at(vars(ends_with("_0_1_0_0_0")), ~ str_replace(., "_0_1_0_0_0", "_2")) %>% 
+  rename_at(vars(ends_with("_0_0_1_0_0")), ~ str_replace(., "_0_0_1_0_0", "_3")) %>% 
+  rename_at(vars(ends_with("_0_0_0_1_0")), ~ str_replace(., "_0_0_0_1_0", "_4")) %>% 
+  rename_at(vars(ends_with("_0_0_0_0_1")), ~ str_replace(., "_0_0_0_0_1", "_5")) %>% 
+  mutate(
+    # Set NA's in n_0-5 as 0 for ease below
+    n_0 = ifelse(!is.na(n_0), n_0, 0),
+    n_1 = ifelse(!is.na(n_1), n_1, 0),
+    n_2 = ifelse(!is.na(n_2), n_2, 0),
+    n_3 = ifelse(!is.na(n_3), n_3, 0),
+    n_4 = ifelse(!is.na(n_4), n_4, 0),
+    n_5 = ifelse(!is.na(n_5), n_5, 0),
+    workers = r_sum(n_0, n_1, n_2, n_3, n_4, n_5),
+    black_per = (
+      r_sum(n_black_0, n_black_1, n_black_2, n_black_3, n_black_4, n_black_5)
+      / workers * 100),
+    hispanic_per = (
+      r_sum(n_hispanic_0, n_hispanic_1, n_hispanic_2, n_hispanic_3, n_hispanic_4,
+            n_hispanic_5) 
+      / workers * 100),
+    union_per = (r_sum(n_union_0, n_union_1, n_union_2, n_union_3, n_union_4,
+                       n_union_5) / 
+                   r_sum(n_union_defined_0, n_union_defined_1, n_union_defined_2,
+                         n_union_defined_3, n_union_defined_4, n_union_defined_5)
+                 * 100),
+    age = (r_sum(tot_age_0, tot_age_1, tot_age_2, tot_age_3, tot_age_4, tot_age_5) 
+           / workers),
+    age_2 = (r_sum(tot_age_2_0, tot_age_2_1, tot_age_2_2, tot_age_2_3,
+                   tot_age_2_4, tot_age_2_5) 
+             / workers)
+  ) %>% 
+  filter(!is.na(month)) %>% 
+  group_by(month) %>% 
+  mutate(workers_per = workers / sum(workers) * 100) %>% 
+  group_by(occ) %>% 
+  mutate(average_size = mean(workers_per)) %>% 
+  # These are used to construct bartik_x and bartik_iv
+  group_by(month, occ) %>% 
+  mutate(
+    occ_share_national = workers / sum(workers),
+    # Find worker type shares for whole US by summing over regions
+    outsourced_per_national = sum(n_1) / sum(workers) * 100,
+    self_emp_per_national = sum(n_2) / sum(workers) * 100,
+    indep_con_per_national = sum(n_3) / sum(workers) * 100,
+    temp_work_per_national = sum(n_4) / sum(workers) * 100,
+    on_call_per_national = sum(n_5) / sum(workers) * 100,
+    # Find leave one out by subtracting own contribution
+    outsourced_per_loo = ifelse(sum(workers) - workers > 0 & workers > 0,
+                                (sum(n_1) - n_1) / (sum(workers) - workers) * 100, NA),
+    self_emp_per_loo  = ifelse(sum(workers) - workers > 0 & workers > 0,
+                               (sum(n_2) - n_2) / (sum(workers) - workers) * 100, NA),
+    indep_con_per_loo  = ifelse(sum(workers) - workers > 0 & workers > 0,
+                                (sum(n_3) - n_3) / (sum(workers) - workers) * 100, NA),
+    temp_work_per_loo  = ifelse(sum(workers) - workers > 0 & workers > 0,
+                                (sum(n_4) - n_4) / (sum(workers) - workers) * 100, NA),
+    on_call_per_loo  = ifelse(sum(workers) - workers > 0 & workers > 0,
+                              (sum(n_5) - n_5) / (sum(workers) - workers) * 100, NA)
+    ) %>% 
+  # Find each region, occ share in January 2001
+  group_by(region, occ) %>% 
+  mutate(
+    occ_share_national_init = 
+      ifelse(month == ymd("2001-01-01"), occ_share_national, 0),
+    occ_share_national_init = max(occ_share_national_init),
+    # Create _delta variables with var - lag(var)
+    workers_per_delta = workers_per - lag(workers_per),
+    log_real_hrly_wage_0_delta = log_real_hrly_wage_0 - lag(log_real_hrly_wage_0),
+    log_real_wkly_wage_0_delta = log_real_wkly_wage_0 - lag(log_real_wkly_wage_0),
+    hours_week_0_delta = hours_week_0 - lag(hours_week_0),
+    part_time_0_delta = part_time_0 - lag(part_time_0),
+    tenure_0_delta = tenure_0 - lag(tenure_0),
+    health_0_delta = health_0 - lag(health_0),
+    retirement_0_delta = retirement_0 - lag(retirement_0),
+    any_benefits_0_delta = any_benefits_0 - lag(any_benefits_0),
+    log_real_hrly_wage_1_delta = log_real_hrly_wage_1 - lag(log_real_hrly_wage_1),
+    log_real_wkly_wage_1_delta = log_real_wkly_wage_1 - lag(log_real_wkly_wage_1),
+    hours_week_1_delta = hours_week_1 - lag(hours_week_1),
+    part_time_1_delta = part_time_1 - lag(part_time_1),
+    tenure_1_delta = tenure_1 - lag(tenure_1),
+    health_1_delta = health_1 - lag(health_1),
+    retirement_1_delta = retirement_1 - lag(retirement_1),
+    any_benefits_1_delta = any_benefits_1 - lag(any_benefits_1)
+    ) %>% 
+  ungroup() %>% 
+  # Create variables and bartik instruments
+  mutate(
+    outsourced_per = occ_share_national * outsourced_per_national,
+    self_emp_per = occ_share_national * self_emp_per_national,
+    indep_con_per = occ_share_national * indep_con_per_national,
+    temp_work_per = occ_share_national * temp_work_per_national,
+    on_call_per = occ_share_national * on_call_per_national,
+    outsourced_per_bartik = occ_share_national_init * outsourced_per_loo,
+    self_emp_per_bartik = occ_share_national_init * self_emp_per_loo,
+    indep_con_per_bartik = occ_share_national_init * indep_con_per_loo,
+    temp_work_per_bartik = occ_share_national_init * temp_work_per_loo,
+    on_call_per_bartik = occ_share_national_init * on_call_per_loo
+  )
+  
+# Save occ_timeline_week in cleaned_data to compare with cps data
+write_csv(occ_timeline_bartik, str_c(clean_folder, "occ_timeline_bartik.csv"))
+
+# Create a function that makes an iv formula given dependent variable 
+# and list of independent variables and instruments
+create_iv <- function(y, x_list, z_list) {
+  vars <- x_list %>% 
+    map(str_c, collapse = "+") %>% 
+    str_c(collapse = "+")
+  
+  instruments <- z_list %>% 
+    map(str_c, collapse = "+") %>% 
+    str_c(collapse = "+")
+  
+  eq <- formula(str_c(y, "~", vars, "|", instruments))
+}
+
+# Run regressions with OLS and IV
+ex_controls <- c("black_per", "hispanic_per", "union_per", "age",
+                 "factor(region)", "factor(month)")
+# , "factor(occ)")
+
+job_types <- c("outsourced_per", "self_emp_per", "indep_con_per",
+               "temp_work_per", "on_call_per")
+job_types_iv <- str_c(job_types, "bartik", sep = "_")
+
+controls <- c(job_types, ex_controls)
+ivs <- c(job_types_iv, ex_controls)
+
+fixed_effects <- c("month", "occ", "region")
+fe <- create_formula("", fixed_effects)
+
+outcomes <- c("log_real_hrly_wage", "log_real_wkly_wage",
+              "hours_week", "part_time", "tenure", "any_benefits",
+              "health")
+
+outcome_names <- c("Log Real Hourly Wage", "Log Real Weekly Wage", "Hours Worked",
+                   "Part-Time Status", "Tenure",
+                   "Any Benefits", "Health Insurance")
+
+# Create a table with regression results, starting with workers_per
+top <- "\\begin{tabular}{lSSSSSS}
+\\toprule
+Dependent Variable & {OLS} & {$R^2$} & {IV} & {$R^2$} & {First-Stage F-stat} & {Observations}    \\\\  \\midrule
+"
+
+eq <- create_formula("workers_per_delta", controls)
+eq_iv <- create_iv("workers_per_delta", controls, ivs)
+
+temp <- lm_robust(eq, data = occ_timeline_bartik,
+                  clusters = occ, se_type = "stata", try_cholesky = T)
+
+temp_iv <- iv_robust(eq_iv, data = occ_timeline_bartik,
+                     clusters = occ, se_type = "stata", try_cholesky = T,
+                     diagnostics = TRUE)
+
+center <- rbind(
+  cbind("Percent of Workers", 
+        format_val(temp$coefficients["outsourced_per"], 
+                   p_stars(temp$p.value["outsourced_per"]), r = 5, s = 5),
+        format_val(temp$r.squared),
+        format_val(temp_iv$coefficients["outsourced_per"], 
+                   p_stars(temp_iv$p.value["outsourced_per"]), r = 5, s = 5),
+        format_val(temp_iv$r.squared),
+        format_val(temp_iv$diagnostic_first_stage_fstatistic["outsourced_per:value"]),
+        format_n(lm_N(temp))
+  ),
+  cbind("in Occupation",
+        format_se(temp$std.error["outsourced_per"], r = 5, s = 5), " & ",
+        format_se(temp_iv$std.error["outsourced_per"], r = 5, s = 5), " & ", " & ", " & "
+  )
+)
+
+for (out in 0:1){
+  for (i in seq_along(outcomes)){
+    
+    # Set heading for section
+    if (i == 1) {
+      if (out == 0) {
+        center %<>% rbind(
+          cbind("\\textbf{Traditional Jobs}", " & ", " & ", " & ", " & ", " & ", " & ")
+        )
+      } else {
+        center %<>% rbind(
+          cbind("\\textbf{Outsourced Jobs}", " & ", " & ", " & ", " & ", " & ", " & ")
+        )
+      }
+    }
+    
+    outcome <- str_c(outcomes[i], out, "delta", sep = "_")
+    eq <- create_formula(outcome, controls)
+    eq_iv <- create_iv(outcome, controls, ivs)
+    
+    temp <- lm_robust(eq, data = occ_timeline_bartik,
+                      clusters = occ, se_type = "stata", try_cholesky = T)
+    
+    temp_iv <- iv_robust(eq_iv, data = occ_timeline_bartik,
+                         clusters = occ, se_type = "stata", try_cholesky = T,
+                         diagnostics = TRUE)
+    
+    center %<>% rbind(
+      cbind(outcome_names[i], 
+            format_val(temp$coefficients["outsourced_per"], 
+                       p_stars(temp$p.value["outsourced_per"]), r = 5, s = 5),
+            format_val(temp$r.squared),
+            format_val(temp_iv$coefficients["outsourced_per"], 
+                       p_stars(temp_iv$p.value["outsourced_per"]), r = 5, s = 5),
+            format_val(temp_iv$r.squared),
+            format_val(temp_iv$diagnostic_first_stage_fstatistic["outsourced_per:value"]),
+            format_n(lm_N(temp))
+      ),
+      cbind("",
+            format_se(temp$std.error["outsourced_per"], r = 5, s = 5), " & ",
+            format_se(temp_iv$std.error["outsourced_per"], r = 5, s = 5), " & ", " & ", " & "
+      )
+    )
+  }
+}
+
+# For slides, only keep certain rows
+s_center <- center[c(1:5, 16:20, 31:32),]
+
+center %<>% cbind(
+  rbind("\\\\", "\\\\[2pt] \\midrule", "\\\\[2pt]", "\\\\", "\\\\[2pt]", 
+        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
+        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt] \\midrule",
+        "\\\\[2pt]", "\\\\", "\\\\[2pt]", 
+        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
+        "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]"
+  )
+)
+
+s_center %<>% cbind(
+  rbind("\\\\", "\\\\[2pt] \\midrule", "\\\\[2pt]", "\\\\", "\\\\[2pt]", 
+        "\\\\",  "\\\\[2pt] \\midrule",
+        "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]"
+  )
+) 
+
+
+bot <- str_c(
+  "\\bottomrule
+\\end{tabular}
+}
+\\caption{Occupation level regressions of percent outsourced within occupation-region 
+pair each month on average job characteristics in the NLSY. Dependent variables
+are all first-differenced outcomes. Regions are Northeast,
+Midwest, South, and West. OLS uses percent outsourced in region, IV uses the Bartik
+instrument of percent outsourced in every other region times this regions occupation
+share in January 2001.
+Each regression contains controls for percent
+in other alternative job types (ie. independent contractor, temp workers), percent
+Black, Hispanic, and union member, average age, and occupation, month, and region
+fixed effects.
+Regressions use robust standard errors clustered at the occupation level.
+Stars represent
+significant difference from 0 at the .10 level *, .05 level **, and .01 level ***.}
+\\label{occ_month_iv_reg}
+\\end{table}"
+)
+
+# Do weird stuff to create LaTeX output
+t_folder <- str_c(table_folder, "Junk/")
+file_1 <- str_c(t_folder, "center.txt")
+write.table(center, file_1, quote=T, col.names=F, row.names=F)
+center <- read.table(file_1, sep = "")
+write.table(center, file_1, quote=F, col.names=F, row.names=F, sep = "")
+center <- readChar(file_1, nchars = 1e6)
+
+write.table(str_c(table_top, siunitx, top, center, bot, "\n \\end{document}"),
+            str_c(table_folder,
+                  "NLSY79 Occupation Info/Occupation IV Regressions.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# # Save in Drafts
+# write.table(str_c(d_table_top, top, center, bot),
+#             str_c(d_table_folder, "NLSY79 Occupation Regressions.tex"),
+#             quote=F, col.names=F, row.names=F, sep="")
+# 
+# # Save in Slides
+# # Do weird stuff to create LaTeX output
+# t_folder <- str_c(table_folder, "Junk/")
+# file_1 <- str_c(t_folder, "center.txt")
+# write.table(s_center, file_1, quote=T, col.names=F, row.names=F)
+# s_center <- read.table(file_1, sep = "")
+# write.table(s_center, file_1, quote=F, col.names=F, row.names=F, sep = "")
+# s_center <- readChar(file_1, nchars = 1e6)
+# 
+# write.table(str_c(s_table_top, top, s_center, s_bot),
+#             str_c(s_table_folder, "NLSY79 Occupation Regressions.tex"),
+#             quote=F, col.names=F, row.names=F, sep="")
+
+# Do the same for robust (see above)
+occ_timeline_r_bartik <- timeline_r %>%
+  # filter(year(week) <= 2012) %>% 
+  filter(!is.na(occ), !is.na(outsourced)) %>%
+  group_by(region, month, occ, outsourced, self_emp, indep_con, temp_work, on_call) %>%
+  summarise(
+    n = sum(weight),
+    log_real_wkly_wage = mean(log_real_wkly_wage, na.rm = T),
+    hours_week = mean(hours_week, na.rm = T),
+    part_time = mean(part_time, na.rm = T),
+    tenure = mean(tenure, na.rm = T),
+    health = mean(health, na.rm = T),
+    retirement = mean(retirement, na.rm = T),
+    any_benefits = mean(any_benefits, na.rm = T),
+    n_black = sum(black * weight),
+    n_hispanic = sum(hispanic * weight),
+    n_union = sum(union * weight, na.rm = T),
+    n_union_defined = sum((!is.na(union) %in% T) * weight),
+    tot_age = sum(age * weight),
+    tot_age_2 = sum((age ^ 2) * weight)
+  ) %>%
+  pivot_wider(names_from = c(outsourced, self_emp, indep_con, temp_work, on_call),
+              values_from = n:tot_age_2) %>%
+  ungroup() %>% 
+  # Rename pivot table so easier to reference 
+  rename_at(vars(ends_with("_0_0_0_0_0")), ~ str_replace(., "_0_0_0_0_0", "_0")) %>% 
+  rename_at(vars(ends_with("_1_0_0_0_0")), ~ str_replace(., "_1_0_0_0_0", "_1")) %>% 
+  rename_at(vars(ends_with("_0_1_0_0_0")), ~ str_replace(., "_0_1_0_0_0", "_2")) %>% 
+  rename_at(vars(ends_with("_0_0_1_0_0")), ~ str_replace(., "_0_0_1_0_0", "_3")) %>% 
+  rename_at(vars(ends_with("_0_0_0_1_0")), ~ str_replace(., "_0_0_0_1_0", "_4")) %>% 
+  rename_at(vars(ends_with("_0_0_0_0_1")), ~ str_replace(., "_0_0_0_0_1", "_5")) %>% 
+  mutate(
+    # Set NA's in n_0-5 as 0 for ease below
+    n_0 = ifelse(!is.na(n_0), n_0, 0),
+    n_1 = ifelse(!is.na(n_1), n_1, 0),
+    n_2 = ifelse(!is.na(n_2), n_2, 0),
+    n_3 = ifelse(!is.na(n_3), n_3, 0),
+    n_4 = ifelse(!is.na(n_4), n_4, 0),
+    n_5 = ifelse(!is.na(n_5), n_5, 0),
+    workers = r_sum(n_0, n_1, n_2, n_3, n_4, n_5),
+    black_per = (
+      r_sum(n_black_0, n_black_1, n_black_2, n_black_3, n_black_4, n_black_5)
+      / workers * 100),
+    hispanic_per = (
+      r_sum(n_hispanic_0, n_hispanic_1, n_hispanic_2, n_hispanic_3, n_hispanic_4,
+            n_hispanic_5) 
+      / workers * 100),
+    union_per = (r_sum(n_union_0, n_union_1, n_union_2, n_union_3, n_union_4,
+                       n_union_5) / 
+                   r_sum(n_union_defined_0, n_union_defined_1, n_union_defined_2,
+                         n_union_defined_3, n_union_defined_4, n_union_defined_5)
+                 * 100),
+    age = (r_sum(tot_age_0, tot_age_1, tot_age_2, tot_age_3, tot_age_4, tot_age_5) 
+           / workers),
+    age_2 = (r_sum(tot_age_2_0, tot_age_2_1, tot_age_2_2, tot_age_2_3,
+                   tot_age_2_4, tot_age_2_5) 
+             / workers)
+  ) %>% 
+  filter(!is.na(month)) %>% 
+  group_by(month) %>% 
+  mutate(workers_per = workers / sum(workers) * 100) %>% 
+  group_by(occ) %>% 
+  mutate(average_size = mean(workers_per)) %>% 
+  # These are used to construct bartik_x and bartik_iv
+  group_by(month, occ) %>% 
+  mutate(
+    occ_share_national = workers / sum(workers),
+    # Find worker type shares for whole US by summing over regions
+    outsourced_per_national = sum(n_1) / sum(workers) * 100,
+    self_emp_per_national = sum(n_2) / sum(workers) * 100,
+    indep_con_per_national = sum(n_3) / sum(workers) * 100,
+    temp_work_per_national = sum(n_4) / sum(workers) * 100,
+    on_call_per_national = sum(n_5) / sum(workers) * 100,
+    # Find leave one out by subtracting own contribution
+    outsourced_per_loo = ifelse(sum(workers) - workers > 0,
+                                (sum(n_1) - n_1) / (sum(workers) - workers) * 100, 0),
+    self_emp_per_loo  = ifelse(sum(workers) - workers > 0,
+                               (sum(n_2) - n_2) / (sum(workers) - workers) * 100, 0),
+    indep_con_per_loo  = ifelse(sum(workers) - workers > 0,
+                                (sum(n_3) - n_3) / (sum(workers) - workers) * 100, 0),
+    temp_work_per_loo  = ifelse(sum(workers) - workers > 0,
+                                (sum(n_4) - n_4) / (sum(workers) - workers) * 100, 0),
+    on_call_per_loo  = ifelse(sum(workers) - workers > 0,
+                              (sum(n_5) - n_5) / (sum(workers) - workers) * 100, 0)
+  ) %>% 
+  # Find each region, occ share in January 2001
+  group_by(region, occ) %>% 
+  mutate(
+    occ_share_national_init = 
+      ifelse(month == ymd("2001-01-01"), occ_share_national, 0),
+    occ_share_national_init = max(occ_share_national_init)
+  ) %>% 
+  ungroup() %>% 
+  # Create variables and bartik instruments
+  mutate(
+    outsourced_per = occ_share_national * outsourced_per_national,
+    self_emp_per = occ_share_national * self_emp_per_national,
+    indep_con_per = occ_share_national * indep_con_per_national,
+    temp_work_per = occ_share_national * temp_work_per_national,
+    on_call_per = occ_share_national * on_call_per_national,
+    outsourced_per_bartik = occ_share_national_init * outsourced_per_loo,
+    self_emp_per_bartik = occ_share_national_init * self_emp_per_loo,
+    indep_con_per_bartik = occ_share_national_init * indep_con_per_loo,
+    temp_work_per_bartik = occ_share_national_init * temp_work_per_loo,
+    on_call_per_bartik = occ_share_national_init * on_call_per_loo
+  )
+
+# Save occ_timeline_r_m in cleaned_data to compare with cps data
+write_csv(occ_timeline_r_bartik, str_c(clean_folder, "occ_timeline_robust_bartik.csv"))
+
 # Katz and Krueger --------------------------------------------------------
 
 # From Katz and Krueger (2019), look at workers by job types (Table 2)
@@ -2176,13 +2612,14 @@ for (i in seq_along(vars)) {
 bot <- "\\bottomrule
 \\end{tabular}
 }
-\\caption{Percent of weekly job-person observations in each job type in the NLSY.
-Observations weighted at the person level. Other values are from
-Contingent Worker Survey (CWS) 2005 and \\citet{katz2019b} Table 1 using their 
-alternative weight 2, which reweights to match the CPS in self-employment 
-and multiple job holders. Note that our NLSY data separates self-employment as
-its own job type while both CWS and KK do not, so we could not determine how many
-workers are in traditional jobs for these sources.}
+\\caption{Percent of weekly job-person observations in each job type for men in the NLSY.
+Observations weighted at the person level. Other values are from 
+\\citet{katz2019b} Table 1 using data from the Contingent Worker Survey (CWS) 2005 and 
+the RAND American Life Panel using alternative weight 2,
+which reweights to match the CPS in self-employment 
+and multiple job holders. Both of these samples include men and women age 18 and older.
+The NLSY separates self-employment as its own job type while both CWS and KK do not,
+so I could not determine how many workers are in traditional jobs for these sources.}
 \\label{per_job_types}
 \\end{table}"
 

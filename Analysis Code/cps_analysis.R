@@ -959,7 +959,7 @@ c_bot <- str_c("
   \\end{tabular}
   }
   \\caption{Summary statistics from the January 2001 - October 2016 CPS 
-  for all employed men age 18-65  and for those born between 1957-1964(NLSY cohort). 
+  for all employed men age 18-65 and for those born between 1957-1964 (NLSY cohort). 
   Workers are divided by if they work in a high outsourcing (HO) occupation
   (all occupations with outsourcing more than 4.34\\% in the NLSY).
   Statstics are weighted at the person level.

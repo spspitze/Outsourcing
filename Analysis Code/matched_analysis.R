@@ -550,6 +550,11 @@ top_j_t <- "\\begin{tabular}{lSSSSSS}
 Variable & {Outsourced} & {Traditional} & {Self-Employed} & {Ind. Contractor} & {On-Call} & {Temp} \\\\ \\midrule 
 "
 
+top_j_o_t <- "\\begin{tabular}{lSS}
+\\toprule
+& {Outsourced} & {Traditional} \\\\  \\midrule
+"
+
 types <- c("outsourced", "traditional", "self_emp", 
            "indep_con", "on_call", "temp_work")
 
@@ -569,7 +574,7 @@ dividers <- c()
 sample <- c("", " for workers who are ever in high outsourcing industries")
 observation <- c("person-job-year", "person-job")
 explanation <- c(
-  "", ", where jobs observed more than once use average characteristics"
+  "", ", where jobs observed more than once use average or modal characteristics"
   )
 label <- c("_year", "_year_ho", "_job", "_job_ho")
 folder <- c("Jobs", "Job Types")
@@ -634,9 +639,16 @@ for (ty in 1:2) {
             "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",  "\\\\"))
     
     # For Slides, (only if ty == 2) do not want self_emp or on_call
-    # And only care about a few variables
+    # and only care about a few variables
     if (ty == 2) {
-      s_center <- center[c(1:4, 7:12, 15:18, 35),c(1:3, 5, 7:8)]
+      s_center <- center[c(1:4, 7:12, 15:18, 35), c(1:3, 5, 7:8)]
+      
+      
+      # For Draft and Slides, (only if ty == 2) create tables with
+      # outsourced and traditional.
+      # For slides only care about a few variables
+      center_o_t <- center[, c(1:3, 8)]
+      s_center_o_t <- center[c(1:4, 7:12, 15:18, 35), c(1:3, 8)]
     }
   
     # Do weird stuff to create LaTeX output
@@ -677,6 +689,29 @@ Stars represent significant difference from outsourced jobs at the .10 level *,
 .05 level **, and .01 level ***.}
 \\label{job_types", label[k], "}
 \\end{table}"
+    )
+    
+    # Do weird stuff to create LaTeX output
+    j_folder <- str_c(table_folder, "Junk/")
+    file_1 <- str_c(j_folder, "center.txt")
+    write.table(center_o_t, file_1, quote=T, col.names=F, row.names=F)
+    center_o_t <- read.table(file_1, sep = "")
+    write.table(center_o_t, file_1, quote=F, col.names=F, row.names=F, sep = "")
+    center_o_t <- readChar(file_1, nchars = 1e6)
+    
+    bot_o_t <- str_c(
+      "\\bottomrule
+\\end{tabular}
+}
+\\caption{Summary statistics of jobs in the NLSY divided by outsourced and traditional
+  jobs",
+  sample[ho], ". 
+Observations are at the ", observation[ob], " level", explanation[ob],
+  ". All statistics are weighted at the person level.
+Stars represent significant difference from outsourced jobs at the .10 level *, 
+.05 level **, and .01 level ***.}
+\\label{job_types", label[k], "_o_t}
+\\end{table}"
       )
       
       # If ho == 1, save a version in Drafts and Slides
@@ -701,6 +736,28 @@ Variable & {Outsourced} & {Traditional} & {Ind. Contractor} & {Temp} \\\\ \\midr
         write.table(str_c(s_table_top, s_top, s_center, s_bot),
                     str_c(s_table_folder, "Job Summary Statistics ", save[k], ".tex"),
                     quote=F, col.names=F, row.names=F, sep="")
+        
+        # Just save outsourced and traditional
+        if (ty == 2){
+          write.table(str_c(d_table_top, top_j_o_t, center_o_t, bot_o_t),
+                      str_c(d_table_folder, "Job Summary Statistics ", save[k], 
+                            " Out + Trad.tex"),
+                      quote=F, col.names=F, row.names=F, sep="")
+          
+          # Do weird stuff to create LaTeX output
+          j_folder <- str_c(table_folder, "Junk/")
+          file_1 <- str_c(j_folder, "center.txt")
+          write.table(s_center_o_t, file_1, quote=T, col.names=F, row.names=F)
+          s_center_o_t <- read.table(file_1, sep = "")
+          write.table(s_center_o_t, file_1, quote=F, col.names=F, row.names=F, sep = "")
+          s_center_o_t <- readChar(file_1, nchars = 1e6)
+    
+          
+          write.table(str_c(s_table_top, top_j_o_t, s_center_o_t, s_bot),
+                      str_c(s_table_folder, "Job Summary Statistics ", save[k],
+                            " Out + Trad.tex"),
+                      quote=F, col.names=F, row.names=F, sep="")
+        }
       }
     }
   
@@ -952,7 +1009,8 @@ vars_js_p <- c("part_time", "black", "hispanic", "less_hs", "hs", "aa", "ba", "p
 desc_js <- c("janitors (occupation 4220)", "security guards (occupation 3920)")
 label_js <- c("janitor", "sg")
 occ_js <- c("Janitors", "Security Guards")
-ind_js <- c("4220", "3920") 
+ind_js <- c("services to buildings and dwellings (industry 7690)", 
+            "protective services (industry 7680)") 
 
 for (js in 1:2){
   
@@ -1040,7 +1098,7 @@ for (js in 1:2){
 \\caption{Summary statistics for ", desc_js[js], " who are outsourced vs
 not outsourced in the NLSY. In the left two columns, outsourced is self-reported 
 by the worker as in the rest of this paper. In the right two, it is inferred if the worker 
-is in industry ", 
+is in ", 
     ind_js[js], 
 " following \\citet{dubekaplan2010}. Observations are at the
 person-job level and summary statistics are weighted at the person level. 
@@ -1083,7 +1141,8 @@ Self-Reported & Outsourced & Not Outsourced & Total \\\\ \\midrule
 "
 
 occ_js <- c("janitors (occupation 4220)", "security guards (occupation 3920)")
-ind_js <- c("7690", "7680")
+ind_js <- c("services to buildings and dwellings (industry 7690)", 
+            "protective services (industry 7680)")
 label <- c("janitors", "sg")
 save <- c("Janitors", "Security Guards")
 
@@ -1133,9 +1192,9 @@ for (js in 1:2){
 }
 \\caption{Counts of \\citet{dubekaplan2010} (DK) method of measuring outsourcing versus
 NLSY self-reported job type for ", occ_js[js], " in the NLSY. 
-For columns, following DK, workers are consider outsourced if they are in industry ",
+For columns, following DK, workers are consider outsourced if they are in ",
     ind_js[js], ". 
-For rows, we show the worker's self-reported job type. Observations are at the
+For rows, I show the worker's self-reported job type. Observations are at the
 person-job level.}
 \\label{dk_types_", label[js], "}
 \\end{table}"
@@ -1313,7 +1372,7 @@ samples <- c("person-job-year", "person-job")
 s_labels <- c("_year", "_job")
 s_saves <- c("Years", "Jobs")
 s_explanations <- c(
-  "", ", where jobs observed more than once use average characteristics"
+  "", ", where jobs observed more than once use average or modal characteristics"
 )
 
 top <- str_c(table_top, siunitx, 
@@ -1456,7 +1515,7 @@ for (loop in 1:2) {
       }
       \\caption{Regressions of outsourced on ", var_name, " in the NLSY. All regressions
   include controls for job type (traditional job is default), 
-      a quartic in age ", y, ", union status,", hours_text,
+      a quartic in age, ", y, ", union status,", hours_text,
       " dummies for region, whether in an MSA or central city,
   marital status, and number of children total and in household. 
   The first two columns run OLS and also contain controls for
@@ -1492,7 +1551,7 @@ for (loop in 1:2) {
      }
      \\caption{Regressions of worker outsourcing status on job outcomes in the NLSY.
      All regressions include controls for job type (traditional job is default), 
-     worker and occupation fixed effects, a quartic in age", y, ", union status,
+     worker and occupation fixed effects, a quartic in age, ", y, ", union status,
      dummies for region, whether in an MSA or central city,
      marital status, and number of children total and in household. 
      Regressions for log real hourly wages and job satisfaction also
@@ -1524,7 +1583,7 @@ for (loop in 1:2) {
      }
      \\caption{Regressions of worker outsourcing status on job outcomes in the NLSY.
      All regressions include controls for job type (traditional job is default), 
-     worker and occupation fixed effects, a quartic in age and job tenure", y, ",
+     worker and occupation fixed effects, a quartic in age and job tenure, ", y, ",
      union status, dummies for region, whether in an MSA or central city,
      marital status, and number of children total and in household. 
      Regressions for log real hourly wages and job satisfaction also
