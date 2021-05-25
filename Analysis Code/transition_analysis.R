@@ -23,8 +23,9 @@ d_table_folder <- "../Drafts/Draft Tables/"
 s_table_folder <- "../Slides/Slide Tables/"
 
 # For saving graphs
-aspect_ratio <- 1.62
-height <- 7
+# aspect_ratio <- 1.62
+aspect_ratio <- 1.77
+height <- 6
 width <- height * aspect_ratio
 
 # Download the data
@@ -199,7 +200,7 @@ group-digits          = false
 }"
 
 # Create a default top for Draft tables (no resizebox)
-d_table_top <- "\\begin{table}[h!]
+d_table_top <- "\\begin{table}[t!]
 \\centering 
 { \n"
 
@@ -580,25 +581,10 @@ for (ho in c(1, 2)) {
       geom_line(show.legend = FALSE) +
       # Include labels on all points 
       geom_text(aes(label = type, hjust = "outward"), size = 4, check_overlap = TRUE) +
-      # geom_text(aes(x = FALSE,
-      #               y = transition_type[[ho]][[vars_sum_all[i]]][transition_type[[ho]]$curr==F & transition_type[[ho]]$prev_type=="traditional" & transition_type[[ho]]$curr_type=="outsourced"],
-      #               label = "T"), size = 4, color = "black", position = position_dodge(width = 1)) +
-      # geom_text(aes(x = FALSE,
-      #               y = transition_type[[ho]][[vars_sum_all[i]]][transition_type[[ho]]$curr==F & transition_type[[ho]]$prev_type=="traditional" & transition_type[[ho]]$curr_type=="traditional"],
-      #               label = "T"), size = 4, color = "black", position = position_dodge(width = 1)) +
-      # geom_text(aes(x = FALSE,
-      #               y = transition_type[[ho]][[vars_sum_all[i]]][transition_type[[ho]]$curr==F & transition_type[[ho]]$prev_type=="outsourced" & transition_type[[ho]]$curr_type=="outsourced"],
-      #               label = "O"), size = 4, color = "black", position = position_dodge(width = 1)) +
-      # geom_text(aes(x = FALSE,
-      #               y = transition_type[[ho]][[vars_sum_all[i]]][transition_type[[ho]]$curr==F & transition_type[[ho]]$prev_type=="outsourced" & transition_type[[ho]]$curr_type=="traditional"],
-      #               label = "O"), size = 4, color = "black", position = position_dodge(width = 1)) +
       labs(x = "Job", y = var_label[i]) +
       scale_color_manual(name = "Current Job", breaks = c("traditional", "outsourced"),
                         values = c("blue", "red"),
                         labels = c("Traditional", "Outsourced")) +
-      # scale_linetype_manual(name = "Previous Job", breaks = c("traditional", "outsourced"),
-      #                    values = c("solid", "dashed"),
-      #                    labels = c("Traditional", "Outsourced")) +
       scale_x_discrete(breaks = c(FALSE, TRUE), 
                        labels = c("Previous Job", "Current Job")) +
       theme_light(base_size = 16) +
@@ -626,11 +612,11 @@ for (ho in c(1, 2)) {
         geom_text(aes(x = FALSE,
                       y = transition_type[[ho]][[vars_sum_all[i]]][transition_type[[ho]]$curr==F & transition_type[[ho]]$prev_type=="traditional" & transition_type[[ho]]$curr_type=="traditional"],
                       label = "Traditional", hjust = "outward"), 
-                  size = 4, color = "blue", nudge_y = .0015) +
+                  size = 4, color = "blue") +
         geom_text(aes(x = FALSE,
                       y = transition_type[[ho]][[vars_sum_all[i]]][transition_type[[ho]]$curr==F & transition_type[[ho]]$prev_type=="outsourced" & transition_type[[ho]]$curr_type=="outsourced"],
                       label = "Outsourced", hjust = "outward"),
-                  size = 4, color = "red", nudge_y = -.0015) +
+                  size = 4, color = "red") +
         geom_text(aes(x = FALSE,
                       y = transition_type[[ho]][[vars_sum_all[i]]][transition_type[[ho]]$curr==F & transition_type[[ho]]$prev_type=="outsourced" & transition_type[[ho]]$curr_type=="traditional"],
                       label = "Outsourced", hjust = "outward"),
@@ -700,15 +686,15 @@ for (ho in c(1, 2)) {
         geom_text(aes(x = TRUE,
                       y = transition_type[[ho]][[vars_sum_all[i]]][transition_type[[ho]]$curr==T & transition_type[[ho]]$prev_type=="traditional" & transition_type[[ho]]$curr_type=="traditional"],
                       label = "Traditional", hjust = "outward"), 
-                  size = 4, color = "blue", nudge_y = .0025) +
+                  size = 4, color = "blue") +
         geom_text(aes(x = TRUE,
                       y = transition_type[[ho]][[vars_sum_all[i]]][transition_type[[ho]]$curr==T & transition_type[[ho]]$prev_type=="outsourced" & transition_type[[ho]]$curr_type=="outsourced"],
                       label = "Outsourced", hjust = "outward"),
-                  size = 4, color = "red", nudge_y = -.000) +
+                  size = 4, color = "red") +
         geom_text(aes(x = TRUE,
                       y = transition_type[[ho]][[vars_sum_all[i]]][transition_type[[ho]]$curr==T & transition_type[[ho]]$prev_type=="outsourced" & transition_type[[ho]]$curr_type=="traditional"],
                       label = "Traditional", hjust = "outward"),
-                  size = 4, color = "blue", nudge_y = -.0015) +
+                  size = 4, color = "blue") +
         labs(x = "Job", y = var_label[i]) +
         scale_color_manual(name = "Current Job", breaks = c("traditional", "outsourced"),
                            values = c("blue", "red"),
@@ -911,7 +897,7 @@ for (ind in seq_along(vars_reg)) {
       predict = predict(reg, newdata = t_transition_curr, na.action = "na.exclude"),
       residual = !!sym(var) - predict
     ) %>% 
-    # filter abs(residuals) >= 1e-11  and currently outsourced/traditional
+    # filter abs(residuals) >= 1e-11 and currently outsourced/traditional
     filter(abs(residual) >= 1e-11, outsourced == 1 | traditional == 1)
   
   t_transition_prev %<>% 
@@ -979,7 +965,7 @@ for (ind in seq_along(vars_reg)) {
     ggsave(str_c(figure_folder, "Job Transition ", var_save[ind], " Residuals", 
                  ho_save[ho], ".pdf"), height = height, width = width)
     
-    # For paper, make some tables custom so all labels can be seen
+    # For paper, make some figures custom so all labels can be seen
     # For LRW_Wage
     if (ind == 2 & ho == 1) {
       temp <- temp_summary[[ho]] %>%  
@@ -995,11 +981,11 @@ for (ind in seq_along(vars_reg)) {
         geom_text(aes(x = FALSE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==F & temp_summary[[ho]]$prev_type=="traditional" & temp_summary[[ho]]$curr_type=="traditional"],
                       label = "Traditional", hjust = "outward"), 
-                  size = 4, color = "blue", nudge_y = -.0015) +
+                  size = 4, color = "blue") +
         geom_text(aes(x = FALSE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==F & temp_summary[[ho]]$prev_type=="outsourced" & temp_summary[[ho]]$curr_type=="outsourced"],
                       label = "Outsourced", hjust = "outward"),
-                  size = 4, color = "red", nudge_y = .0015) +
+                  size = 4, color = "red") +
         geom_text(aes(x = FALSE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==F & temp_summary[[ho]]$prev_type=="outsourced" & temp_summary[[ho]]$curr_type=="traditional"],
                       label = "Outsourced", hjust = "outward"),
@@ -1008,7 +994,7 @@ for (ind in seq_along(vars_reg)) {
         geom_text(aes(x = TRUE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$prev_type=="traditional" & temp_summary[[ho]]$curr_type=="outsourced"],
                       label = "Outsourced", hjust = "outward"), 
-                  size = 4, color = "red") +
+                  size = 4, color = "red", nudge_y = .0015) +
         geom_text(aes(x = TRUE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$prev_type=="traditional" & temp_summary[[ho]]$curr_type=="traditional"],
                       label = "Traditional", hjust = "outward"), 
@@ -1016,7 +1002,7 @@ for (ind in seq_along(vars_reg)) {
         geom_text(aes(x = TRUE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$prev_type=="outsourced" & temp_summary[[ho]]$curr_type=="outsourced"],
                       label = "Outsourced", hjust = "outward"),
-                  size = 4, color = "red") +
+                  size = 4, color = "red", nudge_y = -.0015) +
         geom_text(aes(x = TRUE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$prev_type=="outsourced" & temp_summary[[ho]]$curr_type=="traditional"],
                       label = "Traditional", hjust = "outward"),
@@ -1066,15 +1052,15 @@ for (ind in seq_along(vars_reg)) {
         geom_text(aes(x = TRUE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$prev_type=="traditional" & temp_summary[[ho]]$curr_type=="traditional"],
                       label = "Traditional", hjust = "outward"), 
-                  size = 4, color = "blue", nudge_y = .0015) +
+                  size = 4, color = "blue") +
         geom_text(aes(x = TRUE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$prev_type=="outsourced" & temp_summary[[ho]]$curr_type=="outsourced"],
                       label = "Outsourced", hjust = "outward"),
-                  size = 4, color = "red", nudge_y = -.000) +
+                  size = 4, color = "red") +
         geom_text(aes(x = TRUE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$prev_type=="outsourced" & temp_summary[[ho]]$curr_type=="traditional"],
                       label = "Traditional", hjust = "outward"),
-                  size = 4, color = "blue", nudge_y = -.0015) +
+                  size = 4, color = "blue") +
         labs(x = "Job", y = str_c(var_label[ind], " Residuals")) +
         scale_color_manual(name = "Current Job", breaks = c("traditional", "outsourced"),
                            values = c("blue", "red"),
@@ -1633,7 +1619,7 @@ center_s <- read.table(file_1, sep = "")
 write.table(center_s, file_1, quote=F, col.names=F, row.names=F, sep = "")
 center_s <- readChar(file_1, nchars = 1e6)
 
-# Save to Folder, Drafts, and Slides
+# Save to Folder and Drafts
 write.table(str_c(table_top, siunitx, top, center, bot, "\n \\end{document}"), 
             str_c(table_folder, 
                   "NLSY79 Job Transitions/Current and Previous Outsourced Regressions.tex"),
@@ -1643,7 +1629,7 @@ write.table(str_c(s_table_top, top, center, bot),
             str_c(d_table_folder, "Current and Previous Outsourced Regressions.tex"),
             quote=F, col.names=F, row.names=F, sep="")
 
-# Also save to Slides
+# Save just the previous regression to slides
 write.table(str_c(s_table_top, top_s, center_s, s_bot),
             str_c(s_table_folder, "Previous Outsourced Regressions.tex"),
             quote=F, col.names=F, row.names=F, sep="")

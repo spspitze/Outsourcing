@@ -1,5 +1,5 @@
-# This file contains IPUMS CPS data from cps_raw_codebook and cps_00005.dat.gz
-# This is monthly data from 2001-2016 for all men. 
+# This file contains IPUMS CPS data from cps_raw_codebook and cps_00010.dat.gz
+# This is monthly data from Jan 2001- Oct 2016 for all men. 
 # Focus on occupation prevalance by outsourcing prevalance 
 # (according to NLSY 79 data in occ_timeline).
 # To compare cps occ2010 to nlsy (which uses 2000 census codes from 2001-2016),
@@ -11,6 +11,7 @@
 
 rm(list = ls())
 
+library(dineq)
 library(rlang)
 library(weights)
 library(BSDA)
@@ -25,7 +26,6 @@ library(lubridate)
 library(ipumsr)
 library(tidyverse)
 
-
 raw_folder <- "../Raw Data/"
 clean_folder <- "../Cleaned Data/"
 table_folder <- "../Tables/"
@@ -34,8 +34,9 @@ d_table_folder <- "../Drafts/Draft Tables/"
 s_table_folder <- "../Slides/Slide Tables/"
 
 # For saving graphs
-aspect_ratio <- 1.62
-height <- 7
+# aspect_ratio <- 1.62
+aspect_ratio <- 1.77
+height <- 6
 width <- height * aspect_ratio
 
 # Read the data using cps's custom formulas
@@ -170,7 +171,7 @@ group-digits          = false
 }"
 
 # Create a default top for Draft tables (no resizebox)
-d_table_top <- "\\begin{table}[h!]
+d_table_top <- "\\begin{table}[t!]
 \\centering 
 { \n"
 
@@ -222,8 +223,8 @@ cps %<>%
     # Define working if empstat is 1, 10, or 12 and unemployed if 21 or 22
     working = 1 * (empstat %in% c(1, 10, 12)),
     unemployed = 1 * (empstat %in% c(21, 22)),
-    # Define part_time if wkstat is 12, 20-41
-    part_time = 1 * (wkstat == 12 | (wkstat >= 20 & wkstat <= 22)),
+    # Define part_time if wkstat is 12, 20-42
+    part_time = 1 * (wkstat == 12 | (wkstat >= 20 & wkstat <= 42)),
     # For education groups
     less_hs = 1 * (educ <= 72),
     hs = 1 * (educ %in% c(73, 81)),
@@ -237,20 +238,33 @@ cps %<>%
     ind_1990 = ifelse(ind1990 != 0, ind1990, NA),
     # Mark Industries in professional business services (in 1990)
     pbs_1990 = 1 * (ind_1990 >= 721 & ind_1990 <= 760),
-    # Find log_real_wkly/hrly_wage, drop NA's and below 3 /hr or 60/wk
-    log_real_hrly_wage = 
-      ifelse(hourwage != 999.99 & hourwage >= 3, log(hourwage / cpi * base_cpi), NA),
-    log_real_wkly_wage = 
-      ifelse(earnweek != 9999.99 & earnweek >= 60, log(earnweek / cpi * base_cpi), NA),
-    
+    # Flag imputed wages. earnings, or hours.
+    # Impute wages when earnings and hours exist
+    hourwage = ifelse(qhourwag == 0, hourwage, NA),
+    earnweek = ifelse(qearnwee == 0, earnweek, NA),
+    uhrswork1 = ifelse(quhrswork1 == 0, uhrswork1, NA),
+    # In theory, could impute hrly wages with weekly earnings
+    # divided by usual hours. In practice, this gives too high wages, so won't.
+    # hourwage = ifelse(is.na(hourwage) & !is.na(earnweek) & !is.na(uhrswork1),
+    #                   earnweek / uhrswork1, hourwage),
+    # Keep values where hourwage exists and >= 3, earnweek exists and >= 60
+    # and uhrswork1 exists and >0 <= 80
+    hrly_keep = (hourwage >= 3 & hourwage != 999.99 & !is.na(hourwage)),
+    wkly_keep = (earnweek >= 60 & earnweek != 9999.99 & !is.na(earnweek)),
+    hour_keep = (uhrswork1 > 0 & uhrswork1 <= 80 & !is.na(uhrswork1)),
+    # Make wages real and take logs
+    log_real_hrly_wage = ifelse(hrly_keep, log(hourwage / cpi * base_cpi), NA),
+    log_real_wkly_wage = ifelse(wkly_keep, log(earnweek / cpi * base_cpi), NA),
+    hours_week = ifelse(hour_keep, uhrswork1, NA),
     # Find birth_year if want to compare to NLSY cohort
     birth_year = year - age,
-    nlsy79 = 1 * (birth_year >= 1957 & birth_year <= 1964)
+    nlsy79 = 1 * (birth_year >= 1957 & birth_year <= 1964),
+    # Create unique year*month measure
+    year_month = 12 * (year - 2001) + month
   ) %>% 
   # Keep only variables needed
-  select(year, month, wtfinl, cpsidp, age, earnwt,
-         union, black:nlsy79)
-
+  select(year, month, year_month, wtfinl, cpsidp, age, earnwt,
+         union, black:pbs_1990, log_real_hrly_wage:nlsy79)
 
 # Cross walk comes from https://usa.ipums.org/usa/volii/occ_ind.shtml
 # Is the link "Crosswalks" in bullet reading
@@ -310,21 +324,22 @@ occ_timeline_m <- read_csv(str_c(clean_folder, "occ_timeline_m.csv"),
                          )) %>% 
   mutate(
     year = year(month),
-    month = month(month)
+    month = month(month),
+    year_month = 12 * (year - 2001) + month
   ) %>% 
   rename(black = black_per, hispanic = hispanic_per, union = union_per)
 
 # Get year/month data from occ_timeline_m and keep needed variables
-merger <- select(occ_timeline_m, year, month, occ, outsourced_per,
-                 indep_con_per, self_emp_per, temp_work_per, 
+merger <- select(occ_timeline_m, year, month, year_month, occ, outsourced_per,
+                 indep_con_per, self_emp_per, temp_work_per,
                  on_call_per, ho_occ)
 
 # Group cps by year, month, occ and summarise variables of interest.
-# Look only at working. 
+# Look only at working.
 # Weights are either earnwt or wtfinal
-occ_cps <- cps %>% 
-  filter(working == 1, !is.na(occ)) %>% 
-  group_by(year, month, occ) %>% 
+occ_cps <- cps %>%
+  filter(working == 1, !is.na(occ)) %>%
+  group_by(year_month, occ) %>%
   summarise(
     workers = sum(wtfinl),
     # log_real_wkly_wage = weighted_mean(log_real_wkly_wage, earnwt),
@@ -333,19 +348,19 @@ occ_cps <- cps %>%
     black = weighted_mean(black, wtfinl),
     hispanic = weighted_mean(hispanic, wtfinl),
     age = weighted_mean(age, wtfinl)
-  ) %>% 
+  ) %>%
   # What percent of workers are in this occupation?
-  group_by(year, month) %>% 
-  mutate(workers_per = workers / sum(workers) * 100) %>% 
-  group_by(occ) %>% 
-  mutate(average_size = mean(workers_per)) %>% 
+  group_by(year_month) %>%
+  mutate(workers_per = workers / sum(workers) * 100) %>%
+  group_by(occ) %>%
+  mutate(average_size = mean(workers_per)) %>%
   # inner join outsourcing info from merge
-  inner_join(merger, by = c("year", "month", "occ")) 
+  inner_join(merger, by = c("year_month", "occ"))
 
 # Do something similar for the NLSY79 cohort
-occ_cps_nlsy <- cps %>% 
-  filter(working == 1, !is.na(occ), nlsy79 == 1) %>% 
-  group_by(year, month, occ) %>% 
+occ_cps_nlsy <- cps %>%
+  filter(working == 1, !is.na(occ), nlsy79 == 1) %>%
+  group_by(year_month, occ) %>%
   summarise(
     workers = sum(wtfinl),
     # log_real_wkly_wage = weighted_mean(log_real_wkly_wage, earnwt),
@@ -354,25 +369,25 @@ occ_cps_nlsy <- cps %>%
     black = weighted_mean(black, wtfinl),
     hispanic = weighted_mean(hispanic, wtfinl),
     age = weighted_mean(age, wtfinl)
-  ) %>% 
+  ) %>%
   # What percent of workers are in this occupation?
-  group_by(year, month) %>% 
-  mutate(workers_per = workers / sum(workers) * 100) %>% 
-  group_by(occ) %>% 
-  mutate(average_size = mean(workers_per)) %>% 
+  group_by(year_month) %>%
+  mutate(workers_per = workers / sum(workers) * 100) %>%
+  group_by(occ) %>%
+  mutate(average_size = mean(workers_per)) %>%
   # inner join outsourcing info from merge
-  inner_join(merger, by = c("year", "month", "occ")) 
+  inner_join(merger, by = c("year_month", "occ"))
 
 # Analyze Correlations And Regression -------------------------------------
 
 # What is the correlation between occuation outsourced_per and workers_per?
 # Look at both occ_cps and occ_timeline. Compare results in tables,
 # plot only occ_cps (plot occ_timeline in timeline_analysis)
-data <- list(occ_cps, occ_timeline_m, occ_cps_nlsy)
-titles <- c("CPS", "NLSY 79", "CPS (NLSY 79 Cohort)")
+data <- list(occ_timeline_m, occ_cps, occ_cps_nlsy)
+titles <- c("NLSY 79", "CPS", "CPS (NLSY 79 Cohort)")
 
 table <- str_c(
-  table_top, siunitx, 
+  table_top, siunitx,
   "
   \\begin{tabular}{lSSSS}
   \\toprule
@@ -386,7 +401,7 @@ controls <- c("outsourced_per", "self_emp_per", "indep_con_per",
               "temp_work_per", "on_call_per", "black", "hispanic",
               "union", "age")
 
-fixed_effects <- c("I(year * month)", "occ")
+fixed_effects <- c("year_month", "occ")
 fe <- create_formula("", fixed_effects)
 
 eq <- create_formula("workers_per", controls)
@@ -400,55 +415,55 @@ Data Set & {Outsourced Percent} & {$R^2$} & {Observations}   \\\\  \\midrule
 center <- ""
 
 for (i in 1:3){
-  
-  occ_corr <- data[[i]] %>% 
+
+  occ_corr <- data[[i]] %>%
     group_by(occ) %>%
     summarise(
       corr_emp = cor(outsourced_per, workers_per, use = "na.or.complete"),
       average_size = mean(average_size),
       ho_occ = mean(ho_occ)
-    ) %>% 
+    ) %>%
     filter(!is.na(corr_emp))
-  
+
   # Look at correlation weighted by average occ size
-  occ_corr_w <- occ_corr %>% 
-    as_survey_design(ids = occ, weights = average_size) %>% 
+  occ_corr_w <- occ_corr %>%
+    as_survey_design(ids = occ, weights = average_size) %>%
     summarise(
       corr_emp = unweighted(mean(corr_emp)),
       corr_emp_se = unweighted(sd(corr_emp) / sqrt(n())),
       w_corr_emp = survey_mean(corr_emp, vartype = "se")
     )
-  
+
   # Look at correlation weighted by average occ size for ho vs not occs
-  occ_corr_w_g <- occ_corr %>% 
-    as_survey_design(ids = occ, weights = average_size) %>% 
-    group_by(ho_occ) %>% 
+  occ_corr_w_g <- occ_corr %>%
+    as_survey_design(ids = occ, weights = average_size) %>%
+    group_by(ho_occ) %>%
     summarise(
       corr_emp = unweighted(mean(corr_emp)),
       corr_emp_se = unweighted(sd(corr_emp) / sqrt(n())),
       w_corr_emp = survey_mean(corr_emp, vartype = "se")
-    ) %>% 
+    ) %>%
     arrange(ho_occ)
-  
+
   # Create graphs of distributions and create a table with each t.test
-  
+
   corr_all <- occ_corr_w$corr_emp
   corr_ho <- occ_corr_w_g$corr_emp[2]
   corr_lo <- occ_corr_w_g$corr_emp[1]
   t_all <- occ_corr_w$corr_emp / occ_corr_w$corr_emp_se
   t_ho <- occ_corr_w_g$corr_emp[2] / occ_corr_w_g$corr_emp_se[2]
   t_lo <- occ_corr_w_g$corr_emp[1] / occ_corr_w_g$corr_emp_se[1]
-  
+
   w_corr_all <- occ_corr_w$w_corr_emp
   w_corr_ho <- occ_corr_w_g$w_corr_emp[2]
   w_corr_lo <- occ_corr_w_g$w_corr_emp[1]
   w_t_all <- occ_corr_w$w_corr_emp / occ_corr_w$w_corr_emp_se
   w_t_ho <- occ_corr_w_g$w_corr_emp[2] / occ_corr_w_g$w_corr_emp_se[2]
   w_t_lo <- occ_corr_w_g$w_corr_emp[1] / occ_corr_w_g$w_corr_emp_se[1]
-  
+
   if (i == 1) {
     # Plot histogram of correlations
-    temp <- occ_corr %>% 
+    temp <- occ_corr %>%
       ggplot() +
       geom_histogram(aes(corr_emp, fill = factor(ho_occ)),
                      alpha = 0.4, bins = 20) +
@@ -458,16 +473,16 @@ for (i in 1:3){
       labs(x = "Correlation", y = "Count") +
       scale_fill_manual(name = "Occupation\nOutsourcing", breaks = c(0, 1),
                         values = c("blue", "red"),
-                        labels = list(expression("Low (" < " 3.4%)"), 
+                        labels = list(expression("Low (" < " 3.4%)"),
                                       expression("High (" >= " 3.4%)"))) +
       scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
-      theme_light(base_size = 16) 
-    
+      theme_light(base_size = 16)
+
     ggsave(str_c(figure_folder, "Employment Correlation.pdf"),
            height = height, width = width)
-    
+
     # What about correlation weighted by occupation size?
-    temp <- occ_corr %>% 
+    temp <- occ_corr %>%
       ggplot() +
       geom_point(aes(x = corr_emp, y = average_size,
                             color = factor(ho_occ)), alpha = 0.4) +
@@ -477,40 +492,40 @@ for (i in 1:3){
       labs(x = "Correlation", y = "Average Occupation Worker Share")+
       scale_color_manual(name = "Occupation\nOutsourcing", breaks = c(0, 1),
                          values = c("blue", "red"),
-                         labels = list(expression("Low (" < " 3.4%)"), 
+                         labels = list(expression("Low (" < " 3.4%)"),
                                        expression("High (" >= " 3.4%)"))) +
       scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
-      theme_light(base_size = 16) 
-    
+      theme_light(base_size = 16)
+
     ggsave(str_c(figure_folder, "Employment Weighted Correlation.pdf"),
            height = height, width = width)
     }
-  
+
   table %<>% str_c(
     titles[i], " & & & & \\\\ \n ",
     "All ",
     format_val(corr_all), format_val(t_all),
     format_val(w_corr_all), format_val(w_t_all), " \\\\ \n",
     "High Outsourcing ",
-    format_val(corr_ho), format_val(t_ho), 
+    format_val(corr_ho), format_val(t_ho),
     format_val(w_corr_ho), format_val(w_t_ho), " \\\\ \n",
     "Low Outsourcing ",
-    format_val(corr_lo), format_val(t_lo), 
+    format_val(corr_lo), format_val(t_lo),
     format_val(w_corr_lo), format_val(w_t_lo), " \\\\"
     )
-  
+
   if (i != 3) {
     table %<>% str_c(" \\midrule \n")
   }
-  
-  
+
+
   temp <- lm_robust(eq, data = data[[i]],
-                    fixed_effects = !!fe, clusters = occ, 
+                    fixed_effects = !!fe, clusters = occ,
                     se_type = "stata", try_cholesky = T)
-  
+
   center %<>% str_c(
     titles[i],
-    format_val(temp$coefficients["outsourced_per"], r = 5, s = 5, 
+    format_val(temp$coefficients["outsourced_per"], r = 5, s = 5,
                star = p_stars(temp$p.value["outsourced_per"])),
     format_val(temp$r.squared), format_n(lm_N(temp)), "\\\\ \n",
     format_se(temp$std.error["outsourced_per"], r = 5, s = 5), " & & \\\\ \n"
@@ -524,14 +539,14 @@ table %<>% str_c(
   }
   \\caption{Mean correlation between an occupation's percent of all jobs and
     percent of that occupation that is outsourced in NLSY and CPS from 2001-2016.
-    High outsourcing occupations are occupations that are outsourced at more 
-    than twice the average rate, low outsourcing occupations are all others. 
-    Unweighted correlations treat all occupations the same, weighted weight by 
+    High outsourcing occupations are occupations that are outsourced at more
+    than twice the average rate, low outsourcing occupations are all others.
+    Unweighted correlations treat all occupations the same, weighted weight by
     average weekly observations.}
     \\label{cps_occ_corr}
     \\end{table}
     \\end{document}
-  "               
+  "
 )
 
 write.table(table,
@@ -545,16 +560,16 @@ bot <- "
 }
 \\caption{Occupation level regressions of percent outsourced each month
 (as measured in the NLSY) on percent of workers in an occupation. Data sets used are the
-CPS, the NLSY, and the CPS with only workers born between 1957-1964 
-(the same cohort as the NLSY). Each regression contains controls for percent 
+CPS, the NLSY, and the CPS with only workers born between 1957-1964
+(the same cohort as the NLSY). Each regression contains controls for percent
 in other alternative job types (ie. independent contractor, temp workers; also from NLSY),
 percent Black, Hispanic, and union member, average age, and occupation and
 month fixed effects. Data runs from January 2001 to October 2016.
-Regressions use robust standard errors clustered at the occupation level. 
+Regressions use robust standard errors clustered at the occupation level.
   Regressions use robust standard errors clustered at the occupation level. Stars represent
   significant difference from 0 at the .10 level *, .05 level **, and .01 level ***.}
 \\label{occ_corr_reg_cps}
-\\end{table}" 
+\\end{table}"
 
 write.table(str_c(table_top, siunitx, top, center, bot, "\n \\end{document}"),
             str_c(table_folder, "CPS/Occupation Regressions.tex"),
@@ -580,35 +595,36 @@ occ_timeline_r_m <- read_csv(str_c(clean_folder, "occ_timeline_robust_m.csv"),
                            col_types = cols(
                              .default = col_double(),
                              month = col_date(format = "")
-                           )) %>% 
+                           )) %>%
   mutate(
     year = year(month),
-    month = month(month)
-  ) %>% 
+    month = month(month),
+    year_month = 12 * (year - 2001) + month
+  ) %>%
   rename(black = black_per, hispanic = hispanic_per, union = union_per)
 
 # Get year/month data from occ_timeline_m and keep needed variables
-merger_r <- select(occ_timeline_r_m, year, month, occ, outsourced_per,
-                 indep_con_per, self_emp_per, temp_work_per, 
+merger_r <- select(occ_timeline_r_m, year, month, year_month, occ, outsourced_per,
+                 indep_con_per, self_emp_per, temp_work_per,
                  on_call_per)
 
-# occ_cps and occ_cps_nlsy have already been created, just merge 
+# occ_cps and occ_cps_nlsy have already been created, just merge
 # in relevant variables
-occ_cps_r <- inner_join(occ_cps, merger_r, by = c("year", "month", "occ"),
-                      suffix = c("_orig", "")) 
+occ_cps_r <- inner_join(occ_cps, merger_r, by = c("year_month", "occ"),
+                      suffix = c("_orig", ""))
 
-occ_cps_nlsy_r <- inner_join(occ_cps_nlsy, merger_r, by = c("year", "month", "occ"),
-                        suffix = c("_orig", "")) 
+occ_cps_nlsy_r <- inner_join(occ_cps_nlsy, merger_r, by = c("year_month", "occ"),
+                        suffix = c("_orig", ""))
 
 # Only rerun regressions
-data_r <- list(occ_cps_r, occ_timeline_r_m, occ_cps_nlsy_r)
-titles <- c("CPS", "NLSY 79", "CPS (NLSY 79 Cohort)")
+data_r <- list(occ_timeline_r_m, occ_cps_r, occ_cps_nlsy_r)
+titles <- c("NLSY 79", "CPS", "CPS (NLSY 79 Cohort)")
 
 controls <- c("outsourced_per", "self_emp_per", "indep_con_per",
               "temp_work_per", "on_call_per", "black", "hispanic",
               "union", "age")
 
-fixed_effects <- c("I(year * month)", "occ")
+fixed_effects <- c("year_month", "occ")
 fe <- create_formula("", fixed_effects)
 
 eq <- create_formula("workers_per", controls)
@@ -616,14 +632,14 @@ eq <- create_formula("workers_per", controls)
 center <- ""
 
 for (i in 1:3){
-  
+
   temp <- lm_robust(eq, data = data_r[[i]],
-                    fixed_effects = !!fe, clusters = occ, 
+                    fixed_effects = !!fe, clusters = occ,
                     se_type = "stata", try_cholesky = T)
-  
+
   center %<>% str_c(
     titles[i],
-    format_val(temp$coefficients["outsourced_per"], r = 5, s = 5, 
+    format_val(temp$coefficients["outsourced_per"], r = 5, s = 5,
                star = p_stars(temp$p.value["outsourced_per"])),
     format_val(temp$r.squared), format_n(lm_N(temp)), "\\\\ \n",
     format_se(temp$std.error["outsourced_per"], r = 5, s = 5), " & & \\\\ \n"
@@ -638,12 +654,12 @@ bot <- "
 }
 \\caption{Occupation level regressions of percent outsourced each month
 (as measured in the NLSY) on percent of workers in an occupation. Data sets used are the
-CPS, the NLSY, and the CPS with only workers born between 1957-1964 
-(the same cohort as the NLSY). Each regression contains controls for percent 
+CPS, the NLSY, and the CPS with only workers born between 1957-1964
+(the same cohort as the NLSY). Each regression contains controls for percent
 in other alternative job types (ie. independent contractor, temp workers; also from NLSY),
 percent Black, Hispanic, and union member, average age, and occupation and
 month fixed effects. Data runs from January 2001 to October 2016.
-Regressions use robust standard errors clustered at the occupation level. 
+Regressions use robust standard errors clustered at the occupation level.
   Regressions use robust standard errors clustered at the occupation level. Stars represent
   significant difference from 0 at the .10 level *, .05 level **, and .01 level ***.}
 \\label{occ_corr_reg_robust_cps}
@@ -672,16 +688,17 @@ pbs_timeline_m <- read_csv(str_c(clean_folder, "pbs_timeline_m.csv"),
                            col_types = cols(
                              .default = col_double(),
                              month = col_date(format = "")
-                           )) %>% 
+                           )) %>%
   mutate(
     year = year(month),
-    month = month(month)
+    month = month(month),
+    year_month = 12 * (year - 2001) + month
   )
 
-occ_pbs <- cps %>% 
-  mutate(pbs = pbs_1990) %>% 
-  filter(working == 1, !is.na(occ), !is.na(pbs)) %>% 
-  group_by(year, month, occ, pbs) %>% 
+occ_pbs <- cps %>%
+  mutate(pbs = pbs_1990) %>%
+  filter(working == 1, !is.na(occ), !is.na(pbs)) %>%
+  group_by(year_month, occ, pbs) %>%
   summarise(
     n = sum(wtfinl),
     n_black = sum(black * wtfinl),
@@ -690,10 +707,10 @@ occ_pbs <- cps %>%
     n_union_defined = sum((!is.na(union) %in% T) * wtfinl),
     tot_age = sum(age * wtfinl),
     tot_age_2 = sum(age^2 * wtfinl)
-  ) %>% 
+  ) %>%
   pivot_wider(names_from = c(pbs),
               values_from = n:tot_age_2) %>%
-  ungroup() %>% 
+  ungroup() %>%
   mutate(
     workers = r_sum(n_0, n_1),
     pbs_per = ifelse(!is.na(n_1), n_1 / workers * 100, 0),
@@ -701,22 +718,22 @@ occ_pbs <- cps %>%
       r_sum(n_black_0, n_black_1) / workers * 100),
     hispanic_per = (
       r_sum(n_hispanic_0, n_hispanic_1) / workers * 100),
-    union_per = (r_sum(n_union_0, n_union_1) / 
+    union_per = (r_sum(n_union_0, n_union_1) /
                    r_sum(n_union_defined_0, n_union_defined_1)
                  * 100),
     age = (r_sum(tot_age_0, tot_age_1) / workers),
     age_2 = (r_sum(tot_age_2_0, tot_age_2_1) / workers)
-  ) %>% 
-  group_by(year, month) %>% 
+  ) %>%
+  group_by(year_month) %>%
   mutate(workers_per = workers / sum(workers) * 100)
 
-data_pbs <- list(occ_pbs, pbs_timeline_m)
+data_pbs <- list(pbs_timeline_m, occ_pbs)
 
-titles <- c("CPS", "NLSY 79")
+titles <- c("NLSY 79" , "CPS")
 
 controls <- c("pbs_per", "black_per", "hispanic_per", "union_per", "age")
 
-fixed_effects <- c("I(year * month)", "occ")
+fixed_effects <- c("year_month", "occ")
 fe <- create_formula("", fixed_effects)
 
 eq <- create_formula("workers_per", controls)
@@ -729,14 +746,14 @@ Data Set & {PBS Percent} & {$R^2$} & {Observations}   \\\\  \\midrule
 center <- ""
 
 for (i in 1:2){
-  
+
   temp <- lm_robust(eq, data = data_pbs[[i]],
-                    fixed_effects = !!fe, clusters = occ, 
+                    fixed_effects = !!fe, clusters = occ,
                     se_type = "stata", try_cholesky = T)
-  
+
   center %<>% str_c(
     titles[i],
-    format_val(temp$coefficients["pbs_per"], r = 5, s = 5, 
+    format_val(temp$coefficients["pbs_per"], r = 5, s = 5,
                star = p_stars(temp$p.value["pbs_per"])),
     format_val(temp$r.squared), format_n(lm_N(temp)), "\\\\ \n",
     format_se(temp$std.error["pbs_per"], r = 5, s = 5), " & & \\\\ \n"
@@ -779,10 +796,10 @@ write.table(str_c(d_table_top, top, center, s_bot),
 # Merge ho_occ info into full cps data
 cps %<>% data.table()
 
-ho_occ <- occ_timeline_m %>% 
-  filter(!is.na(ho_occ)) %>% 
-  group_by(occ) %>% 
-  summarise(ho_occ = mean(ho_occ)) %>% 
+ho_occ <- occ_timeline_m %>%
+  filter(!is.na(ho_occ)) %>%
+  group_by(occ) %>%
+  summarise(ho_occ = mean(ho_occ)) %>%
   data.table()
 
 setkey(cps, occ)
@@ -798,14 +815,14 @@ ho_ss <- list(cps, filter(cps, nlsy79 == 1))
 comp <- list(cps, filter(cps, nlsy79 == 1))
 
 for (i in 1:2) {
-  ho_ss[[i]] %<>% 
-    filter(!is.na(ho_occ)) %>% 
-    group_by(ho_occ) %>% 
+  ho_ss[[i]] %<>%
+    filter(!is.na(ho_occ)) %>%
+    group_by(ho_occ) %>%
     summarise(
-      log_real_hrly_wage_se = weighted_sterr(log_real_hrly_wage, earnwt, 
+      log_real_hrly_wage_se = weighted_sterr(log_real_hrly_wage, earnwt,
                                              !is.na(log_real_hrly_wage)),
       log_real_hrly_wage = weighted_mean(log_real_hrly_wage, earnwt),
-      log_real_wkly_wage_se = weighted_sterr(log_real_wkly_wage, earnwt, 
+      log_real_wkly_wage_se = weighted_sterr(log_real_wkly_wage, earnwt,
                                              !is.na(log_real_wkly_wage)),
       log_real_wkly_wage = weighted_mean(log_real_wkly_wage, earnwt),
       union_se = weighted_sterr(union, earnwt),
@@ -833,9 +850,9 @@ for (i in 1:2) {
       married_se = weighted_sterr(married, wtfinl),
       married = weighted_mean(married, wtfinl),
       n = n()
-    ) %>% 
+    ) %>%
     arrange(desc(ho_occ))
-  
+
   comp[[i]] %<>%
     filter(!is.na(ho_occ))
 }
@@ -871,9 +888,9 @@ saves <- c("", "NLSY Cohort ")
 descriptions <- c("for all male", "for NLSY 79 cohort (born between 1957-1964) male")
 labels <- c("", "_nlsy")
 
-n_center <- rbind("Log Real", "Hourly Wage", "Log Real", 
+n_center <- rbind("Log Real", "Hourly Wage", "Log Real",
                 "Weekly Wage", "Part-Time", "", "Union", "",
-                "Age", "", "Percent", "Black", "Percent", "Hispanic", 
+                "Age", "", "Percent", "Black", "Percent", "Hispanic",
                 "Less", "High School", "High School", "",
                 "Associates", "Degree", "Bachelor's", "Degree", "Plus", "Degree",
                 "Single", "", "Married", "", "Observations")
@@ -881,42 +898,42 @@ n_center <- rbind("Log Real", "Hourly Wage", "Log Real",
 c_center <- duplicate(n_center)
 
 for (j in 1:2) {
-  
+
   save <- saves[j]
   desc <- descriptions[j]
   label <- labels[j]
-  
+
   cond <- comp[[j]]$ho_occ == 1
-  
+
   for (i in 1:2) {
-    
+
     c_i <- c()
     for (var in vars_sum) {
-      
+
       se <- str_c(var, "_se")
       weights <- if (var %in% vars_earnwt) "earnwt" else "wtfinl"
       mode <- if (var %in% vars_p) "prop" else "mean"
       stars <- if (i == 2) test(comp[[j]], var, weights, mode, cond, !cond, "ho_occ") else ""
-      
+
       c_i %<>% rbind(
         format_val(ho_ss[[j]][[var]][i], star = stars),
         format_se(ho_ss[[j]][[se]][i], r = 4, s = 4)
       )
     }
-    
+
     c_i %<>% rbind(format_n(ho_ss[[j]]$n[i]))
-    
+
     center <- cbind(n_center, c_i)
     c_center %<>% cbind(c_i)
   }
-  
+
   center %<>% cbind(
     rbind("\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
           "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
           "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
           "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]",
           "\\\\", "\\\\[2pt]", "\\\\", "\\\\[2pt]", "\\\\[2pt]"))
-  
+
   # Do weird stuff to create LaTeX output
   j_folder <- str_c(table_folder, "Junk/")
   file_1 <- str_c(j_folder, "center.txt")
@@ -924,7 +941,7 @@ for (j in 1:2) {
   center <- read.table(file_1, sep = "")
   write.table(center, file_1, quote=F, col.names=F, row.names=F, sep = "")
   center <- readChar(file_1, nchars = 1e6)
-  
+
   bot <- str_c("
   \\bottomrule
   \\end{tabular}
@@ -932,12 +949,12 @@ for (j in 1:2) {
   \\caption{Summary statistics from the CPS ", desc, " workers divided by high outsourcing
   (HO) occupations (all occupations with outsourcing more than 4.34\\% in the NLSY))
   vs not from January 2001 - October 2016. Statstics are weighted at the person level.
-  Stars represent significant difference from HO occupations at the .10 level *, 
+  Stars represent significant difference from HO occupations at the .10 level *,
   .05 level **, and .01 level ***.}
   \\label{ho_occ_cps", label, "}
   \\end{table}"
   )
-  
+
   write.table(str_c(table_top, siunitx, top, center, bot, "\n \\end{document}"),
               str_c(table_folder, "CPS/HO Occupation ",
                     save, "Summary Statistics.tex"),
@@ -958,17 +975,17 @@ c_bot <- str_c("
   \\bottomrule
   \\end{tabular}
   }
-  \\caption{Summary statistics from the January 2001 - October 2016 CPS 
-  for all employed men age 18-65 and for those born between 1957-1964 (NLSY cohort). 
+  \\caption{Summary statistics from the January 2001 - October 2016 CPS
+  for all employed men age 18-65 and for those born between 1957-1964 (NLSY cohort).
   Workers are divided by if they work in a high outsourcing (HO) occupation
   (all occupations with outsourcing more than 4.34\\% in the NLSY).
   Statstics are weighted at the person level.
-  Stars represent significant difference from HO occupations at the .10 level *, 
+  Stars represent significant difference from HO occupations at the .10 level *,
   .05 level **, and .01 level ***.}
   \\label{ho_occ_cps}
   \\end{table}")
 
-# Save in Drafts 
+# Save in Drafts
 # Do weird stuff to create LaTeX output
 j_folder <- str_c(table_folder, "Junk/")
 file_1 <- str_c(j_folder, "center.txt")
@@ -981,7 +998,7 @@ write.table(str_c(s_table_top, c_top, c_center, c_bot),
             str_c(d_table_folder, "CPS HO Occupation Summary Statistics.tex"),
             quote=F, col.names=F, row.names=F, sep="")
 
-# Save in Slides (no resize)
+# Save in Slides (make scriptsize)
 # Do weird stuff to create LaTeX output
 j_folder <- str_c(table_folder, "Junk/")
 file_1 <- str_c(j_folder, "center.txt")
@@ -990,9 +1007,15 @@ s_center <- read.table(file_1, sep = "")
 write.table(s_center, file_1, quote=F, col.names=F, row.names=F, sep = "")
 s_center <- readChar(file_1, nchars = 1e6)
 
-write.table(str_c(s_table_top, c_top, s_center, s_bot),
+write.table(str_c(d_table_top, "\\scriptsize \n", c_top, s_center, s_bot),
             str_c(s_table_folder, "CPS HO Occupation Summary Statistics.tex"),
             quote=F, col.names=F, row.names=F, sep="")
+
+# Make space
+rm(data, data_pbs, data_r, ho_ss,
+   merger, merger_r, occ_corr, occ_corr_w, occ_corr_w_g, occ_cps,
+   occ_cps_nlsy, occ_cps_nlsy_r, occ_cps_r, occ_pbs, occ_timeline_r_m,
+   pbs_timeline_m, comp, cond)
 
 # Wage Distribution ----------------------------------------------------
 
@@ -1001,11 +1024,14 @@ write.table(str_c(s_table_top, c_top, s_center, s_bot),
 # education, and year/month fes; weighted by earnwt
 controls <- c("age", "I(age^2)", "I(age^3)", "I(age^4)", "black", "hispanic",
               "union", "married", "single", "hs", "aa", "ba", "plus_ba")
-fe <- create_formula("", list("year", "month"))
+fe <- create_formula("", "year_month")
 
-vars <- c("log_real_hrly_wage", "log_real_wkly_wage")
-var_names <- c("Log Real Hourly Wage", "Log Real Weekly Wage")
-save_names <- c("LRH Wage", "LRW Wage")
+vars <- c("log_real_wkly_wage", "log_real_hrly_wage")
+var_names <- c("Log Real Weekly Wage", "Log Real Hourly Wage")
+save_names <- c("LRW Wage", "LRH Wage")
+
+# For RIF
+quantiles <- seq(0.05, 0.95, by = 0.05)
 
 for (i in seq_along(vars)) {
   
@@ -1014,9 +1040,9 @@ for (i in seq_along(vars)) {
   save_name <- save_names[i]
   
   temp_max <- max(cps[[var]], na.rm = T)
-  
-  temp <- cps %>% 
-    filter(!is.na(ho_occ), !is.na(.[[var]])) %>% 
+
+  temp <- cps %>%
+    filter(!is.na(ho_occ), !is.na(.[[var]])) %>%
     ggplot(aes_string(var, fill = "factor(ho_occ)")) +
     geom_density(alpha = 0.2, bounds = c(0, temp_max)) +
     labs(x = var_name, y = "Density") +
@@ -1024,15 +1050,15 @@ for (i in seq_along(vars)) {
     scale_fill_manual(name = "HO Occ", breaks = c(0, 1),
                       values = c("blue", "red"),
                       labels = c("No", "Yes")) +
-    theme_light(base_size = 16) 
-  
+    theme_light(base_size = 16)
+
   ggsave(str_c(figure_folder, save_name, " Overall Distribution by HO Occ.pdf"),
          height = height, width = width)
-  
+
   rm(temp)
-  
-  temp <- cps %>% 
-    filter(!is.na(ho_occ), !is.na(.[[var]])) %>% 
+
+  temp <- cps %>%
+    filter(!is.na(ho_occ), !is.na(.[[var]])) %>%
     ggplot(aes_string(var, fill = "factor(ho_occ)")) +
     geom_density(alpha = 0.2, bounds = c(0, temp_max)) +
     labs(x = var_name, y = "Density") +
@@ -1042,23 +1068,23 @@ for (i in seq_along(vars)) {
                       labels = c("No", "Yes")) +
     theme_light(base_size = 16) +
     facet_wrap(~ year)
-  
+
   ggsave(str_c(figure_folder, save_name, " Yearly Distribution by HO Occ.pdf"),
          height = height, width = width)
-  
+
   rm(temp)
-  
+
   eq <- create_formula(var, controls)
-  
+
   reg <- lm_robust(eq, data = cps, fixed_effects = !!fe,
                    weights = earnwt, se_type = "stata", try_cholesky = T)
-  
-  temp <- cps %>% 
-    filter(!is.na(.[[var]]), !is.na(age), 
+
+  temp <- cps %>%
+    filter(!is.na(.[[var]]), !is.na(age),
            !is.na(black), !is.na(hispanic),
-           !is.na(union), !is.na(married), !is.na(hs)) %>% 
-    mutate(residual = lm_residuals(reg)) %>% 
-    filter(!is.na(ho_occ)) %>% 
+           !is.na(union), !is.na(married), !is.na(hs)) %>%
+    mutate(residual = lm_residuals(reg)) %>%
+    filter(!is.na(ho_occ)) %>%
     ggplot(aes(residual, fill = factor(ho_occ))) +
     geom_density(alpha = 0.2) +
     labs(x = str_c("Residual ", var_name), y = "Density") +
@@ -1066,10 +1092,56 @@ for (i in seq_along(vars)) {
                       values = c("blue", "red"),
                       labels = c("No", "Yes")) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
-    theme_light(base_size = 16) 
-  
+    theme_light(base_size = 16)
+
   ggsave(str_c(figure_folder, save_name, " Residuals by HO Occ.pdf"),
          height = height, width = width)
-  
+
   rm(temp, reg)
+  
+  # Get more sophisticated. Use RIF regressions on various quartiles of the
+  # regression and plot how ho_occ affects lrw wages
+  # Note: program can't handle fixed effects, so include everything for now
+  # Also can't subset, so need to ensure correct dataset upfront
+  # Data might be too big, sample min(NROW, 500,000) points
+  set.seed(1)
+  data_rif <- cps %>% 
+    filter(!is.na(.[[var]]), !is.na(ho_occ), !is.na(age), 
+           !is.na(black), !is.na(hispanic),
+           !is.na(union), !is.na(married), !is.na(hs)) %>% 
+    select(log_real_hrly_wage, log_real_wkly_wage,
+           ho_occ, age, black, hispanic, union, married, single,
+           hs, aa, ba, plus_ba, year_month, earnwt) %>% 
+    sample_n(min(500000, NROW(.)))
+  
+  # rm(cps)
+  gc()
+  
+  eq_rif <- create_formula(var, c("ho_occ", controls, "factor(year_month)"))
+  
+  reg_rif <- rifr(eq_rif, data_rif, weights = "earnwt", method = "quantile",
+                  quantile = quantiles, kernel = "gaussian")
+  
+  # Get point estimates and ci. Turn into a df to plot
+  coeffs <- reg_rif$Coef["ho_occ", ]
+  up_ci <- coeffs + reg_rif$SE["ho_occ", ] * 1.96
+  low_ci <- coeffs - reg_rif$SE["ho_occ", ] * 1.96
+  
+  df_rif <- tibble(
+    quantiles, coeffs, up_ci, low_ci
+  )
+  
+  temp <- df_rif %>% 
+    ggplot(aes(x=quantiles, y=coeffs)) +
+    geom_hline(yintercept=0, linetype="dashed", color = "red", size=0.5) +
+    geom_point() +
+    geom_errorbar(aes(ymin=low_ci, ymax=up_ci), width=.02) +
+    labs(x = "Quantile", y = "HO Occupation") +
+    xlim(0, 1) +
+    theme_light(base_size = 16)
+  
+  ggsave(str_c(figure_folder, save_name, " RIF HO Occ.pdf"),
+         height = height, width = width)
+  
+  rm(temp, data_rif, reg_rif, df_rif, coeffs, up_ci, low_ci)
 }

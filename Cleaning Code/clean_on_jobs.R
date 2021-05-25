@@ -1086,6 +1086,34 @@ names(new_data_2) <- c(
   "NEWEMP_CURFLAG.08_2012"
 )
 
+# Many jobs are being droped in 2014-2016 because too much missing data,
+# but it looks like these jobs should exist. These variables from looped
+# should help determine if a job exists
+new_data_3 <- read_table2(str_c(raw_folder, "looped.dat"),  
+                          col_types = cols(.default = col_double()))
+names(new_data_3) <- c(
+  "CASEID_1979",
+  "Q6-8_JOBVER_1A.01_2014",
+  "Q6-8_JOBVER_1A.02_2014",
+  "Q6-8_JOBVER_1A.03_2014",
+  "Q6-8_JOBVER_1A.04_2014",
+  "Q6-8_JOBVER_1B.01_2014",
+  "Q6-8_JOBVER_1B.02_2014",
+  "Q6-8_JOBVER_1B.03_2014",
+  "Q6-8_JOBVER_1C.01_2014",
+  "Q6-8_JOBVER_1C.02_2014",
+  "Q6-8_JOBVER_1C.03_2014",
+  "Q6-8_JOBVER_1A.01_2016",
+  "Q6-8_JOBVER_1A.02_2016",
+  "Q6-8_JOBVER_1A.03_2016",
+  "Q6-8_JOBVER_1A.04_2016",
+  "Q6-8_JOBVER_1B.01_2016",
+  "Q6-8_JOBVER_1B.02_2016",
+  "Q6-8_JOBVER_1C.01_2016",
+  "Q6-8_JOBVER_1C.02_2016",
+  "Q6-8_JOBVER_1C.03_2016"
+)
+
 # Handle missing values
 
 new_data[new_data == -1] = NA  # Refused 
@@ -1094,17 +1122,21 @@ new_data[new_data == -3] = NA  # Invalid missing
 new_data[new_data == -4] = NA  # Valid missing 
 new_data[new_data == -5] = NA  # Non-interview 
 
-# Handle missing values
-
 new_data_2[new_data_2 == -1] = NA  # Refused 
 new_data_2[new_data_2 == -2] = NA  # Dont know 
 new_data_2[new_data_2 == -3] = NA  # Invalid missing 
 new_data_2[new_data_2 == -4] = NA  # Valid missing 
 new_data_2[new_data_2 == -5] = NA  # Non-interview 
 
+new_data_3[new_data_3 == -1] = NA  # Refused 
+new_data_3[new_data_3 == -2] = NA  # Dont know 
+new_data_3[new_data_3 == -3] = NA  # Invalid missing 
+new_data_3[new_data_3 == -4] = NA  # Valid missing 
+new_data_3[new_data_3 == -5] = NA  # Non-interview 
+
 # Join these data sets based on CASEID_1979
 new_data <- inner_join(new_data, new_data_2, by="CASEID_1979")
-
+new_data <- inner_join(new_data, new_data_3, by="CASEID_1979")
 
 # Create a function that, given a variable name and data set, returns T
 # if variable is in names, F else
@@ -1172,11 +1204,14 @@ q_type_p <- "Q6-16H_A"
 q_type_n <- "Q6-27E_A"
 q_type <- c(q_type_d, q_type_p, q_type_n)
 
+# Temp variables for 2014-2016
+q_temp <- "Q6-8_JOBVER_1"
+temp_end <- c("A", "B", "C")
+
 # Year and Month
 y <- "~Y"
 m <- "~M"
 ym <- c(y, m)
-
 
 # Rename Variables --------------------------------------------------------
 
@@ -1282,10 +1317,22 @@ for (job_n in 1:5) {
                   fill = date)
   }
   
+  # 2014-2016: lots of missing data leads to too many drops. 
+  # These variables should exist for viable jobs, keep them as 
+  # temp_a, temp_b, and temp_c when droping missing values
+  # then drop variables
+  for (year in c(2014, 2016)) {
+    for (temp_n in 1:3) {
+      old_name <- str_c(q_temp, temp_end[temp_n], ".0")
+      new_name <- str_c("temp_", temp_end[temp_n])
+      new_data %<>% 
+        rename_oj(old_name, job_n, year, "d", new_name, fill = "")
+    }
+  }
+  
   # 2016: current_job d had a different name
   new_data %<>% 
-    rename_oj("Q6-8", job_n, 2016, "d", "current_job",
-                fill = "")
+    rename_oj("Q6-8.0", job_n, 2016, "d", "current_job", fill = "")
 }
 
 
@@ -1293,7 +1340,8 @@ for (job_n in 1:5) {
 
 # Create list of variables to loop over jobs
 vary <- c("month_start_job", "month_end_job", "current_job", "most_job", "looped", 
-          "pre_trad", "self_emp", "indep_con", "temp_work", "on_call", "outsourced")
+          "pre_trad", "self_emp", "indep_con", "temp_work", "on_call", "outsourced",
+          "temp_A", "temp_B", "temp_C")
 
 constant <- "case_id"
 
@@ -1310,7 +1358,8 @@ long <- new_data %>%
   mutate(key = substring(key, 2)) %>%
   separate(key, sep="_", into=c("job", "int_year"), convert = T) %>% 
   # Keep only observations with at least one job specific bit of data
-  filter_at(vars(-case_id, -job, -int_year, -most_job), any_vars(!is.na(.))) 
+  filter_at(vars(-case_id, -job, -int_year, -most_job), any_vars(!is.na(.))) %>% 
+  select(-temp_A, -temp_B, -temp_C)
 
 # Fill in missing job type data
 # 1. For job types, 1 vs 2 are first and second time though the loop.
@@ -1328,10 +1377,9 @@ for (var in q_type_new[-1]) {
   long[[var]] <- find_type(long, var)
 }
 
-
 # 2. Default job type is traditional. Set as traditional if pre_trad == 1
 # or if no other job type == 1 and job went through loop
-# Apears looped job 5 2014 is missing. Set == 1 if !is.na(self_emp) 
+# Appears looped job 5 2014 is missing. Set == 1 if !is.na(self_emp) 
 long %<>% 
   select(-ends_with("1"), -ends_with("2")) %>% 
   mutate(
@@ -1445,8 +1493,7 @@ long %<>%
       ifelse(row_num > 1, rank + row_num - 1, rank)
     )
   ) %>% 
-  select(-job, -most_job, -num_types, -current_job,
-         -tot_current, -rank_date, -row_num)
+  select(-most_job, -num_types, -current_job, -tot_current, -rank_date, -row_num)
 
 # # Data from 2014 and 2016 interviews in on jobs are less reliable. Drop these years
 # long %<>% filter(int_year < 2014) 

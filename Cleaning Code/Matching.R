@@ -1,15 +1,20 @@
 # This file takes emp_hist_rost_clean, emp_sum_clean, on_jobs_clean, demographics_clean,
-# and weights and matches these data sets together (matched)
+# and weights and matches these data sets together with the help of
+# linking_clean (matched)
 # It then creates a dataset of all jobs by averaging job characteristics 
 # over each interview's observations (matched_jobs)
 # I then combine matched_jobs with timeline_clean to create a timeline of jobs
-# (timeline)
+# (matched_timeline)
+# I also create a timeline using matched where job characteristics change
+# every 2 years (matched_timeline_robust)
 # I use this timeline to see the prevalance of outsourcing for each
 # occupation and merge this information into the three datasets
-# It saves the data in matched, matched_jobs, and matched_timeline
+# It saves the data in matched, matched_jobs, matched_timeline, and
+# matched_timeline_robust
 
 rm(list = ls())
 
+library(xtable)
 library(openxlsx)
 library(readxl)
 library(srvyr)
@@ -38,7 +43,7 @@ table_top <- "\\documentclass[12pt]{article}
 \\resizebox{\\textwidth}{!}{ \n"
 
 # Create a default top for Draft tables (no resizebox, sometimes use it for Slides)
-d_table_top <- "\\begin{table}[h!]
+d_table_top <- "\\begin{table}[t!]
 \\centering 
 { \n"
 
@@ -54,8 +59,9 @@ s_bot <- "\\bottomrule
 \\end{table}"
 
 # For saving graphs
-aspect_ratio <- 1.62
-height <- 7
+# aspect_ratio <- 1.62
+aspect_ratio <- 1.77
+height <- 6
 width <- height * aspect_ratio
 
 # This is data from the Employer History Roster
@@ -103,6 +109,10 @@ on_jobs <- read_csv(str_c(clean_folder, "on_jobs_clean.csv"),
                       month_end_job = col_date(format = "")
                     ))
 
+# Link Employer Supplement to On Jobs
+linking <- read_csv(str_c(clean_folder, "linking_clean.csv"),
+                    col_types = cols(.default = col_double()))
+
 # Create a function to take a variable name and data set. Return the varibale if
 # filled. If NA, check if other"s in group that are not NA. If all are NA, return
 # NA, otherwise return mean (or mode below)
@@ -140,7 +150,7 @@ format_n <- function(n, front = "") {
   str_c(" & {", front, format(n, big.mark = ",", trim = T), "} ")
 }
 
-# Create Match Between Datasets -------------------------------------------------------
+# Create Match Between Datasets and Clean Data -------------------------------
 
 # Join Employer Histoy Roster, Employer Supplement, Demographics, and weights
 # For hist_rost and emp_sup, use outer join because both are measures 
@@ -153,151 +163,29 @@ ehr_es <- left_join(ehr_es, demographics, by = c("case_id", "int_year"))
 ehr_es <- left_join(ehr_es, weights, by = c("case_id")) 
 
 # Matching ehr_es to on_jobs.
-# There are many ways to do this, and some are more believable than others.
-# Always match based on case_id and int_year
+# First link in oj_job to ehr_es dataset
+ehr_es <- left_join(ehr_es, linking, 
+                    by = c("case_id" = "case_id", "int_year" = "int_year",
+                           "job" = "es_job"))
 
-# A. First try to match based on month_ start/end _job and job #/rank. Start with all 
-#    three of these and gradually take them away. Measure match quality from highest (1)
-#    to lowest (9). Each time, take out already matched pairs.
+# Now link in on_jobs
+matched <- left_join(ehr_es, on_jobs, 
+                      by = c("case_id" = "case_id", "int_year" = "int_year",
+                                              "oj_job" = "job"),
+                      suffix = c("_ehr", "_oj"))
 
-#    1. If all three match, these are highest quality matches
-#    2. My rank measure is imputed and may be wrong. Match start/end date
-#    3. Start date is generally more helpful than end date, as this is 
-#       when outsoursing (and other) questions are asked. Do start date + rank 
-#    4. End date can also be helpful sometimes. Do end date + rank
-#    5. Do start without rank
-#    6. Do end without rank 
-#    7. Many jobs are the only observation within it's year on both ends, so assume
-#       these are matches. Only potential issue is that I drop some jobs that I don"t
-#       have any info on, so some jobs might not truely be the only type. 
-#    8. Some years have the same job information for all jobs. Downside of this is
-#       we can't bring in date start/end job or rank.
-#    9. Match only based on rank
-#
-# B. Once we have these separate matches, combine them all into one data set.
-#    If multiple case_id-year-emp_id matches, only keep the one with highest quality.
-#    If multple cases have same quality, drop them all
-#
-# C. Do one final match to create the matched data set. This will have many NA"s
-#    for outsourced (and other), impute them from other case_id-emp_id matches.
-#    Keep only matches where date start/end job are consistent (one/both NA fine),
-#    And where outsourcing + other variables are 1 or 0
-
-# Create a function to anti_join all datasets in a list based on a list
-# of variables
-anti_join_list <- function(data, data_list, var_vec, om = 0) {
-  for (anti_data in data_list) {
-    data %<>% 
-      anti_join(anti_data, by = var_vec)
-  }
-  if (om == 1){
-    data %<>%
-      group_by(case_id, int_year) %>% 
-      filter(n() == 1) %>% 
-      ungroup() 
-  }
-  data
-}
-
-rename_if_cust <- function(.tbl, .predicate, .funs = list(), .cond = TRUE, ...) {
-  if (.cond) {
-    .tbl <- rename_if(.tbl, .predicate, .funs)
-  }
-  .tbl
-}
-
-# Create a function that takes these datasets and a list of variables and matches
-# them together, potentially using 7.only matches (om) or 8.same info (si)
-match_data <- function(oj, ehr, ajl, match_vec, mq = 0, om = 0, si = 0) {
-  
-  oj %<>% 
-    rename(job = rank) %>% 
-    filter_at(vars(!!match_vec), all_vars(!is.na(.))) 
-  
-  if (si == 1) {
-    oj %<>%
-      select(case_id:ever_out_oj) %>% 
-      unique()
-  }
-  
-  if (om == 1) {
-    oj %<>%
-      group_by(case_id, int_year) %>% 
-      filter(n() == 1) %>% 
-      ungroup() 
-  }
-  
-  names_change <- str_c(match_vec[3:length(match_vec)], "$", collapse = "|")
-  
-  match <- ehr %>% 
-    anti_join_list(ajl, c("case_id", "int_year", "emp_id"), om = om) %>% 
-    inner_join(oj, by = match_vec, suffix = c("_ehr", "_oj")) %>% 
-    mutate(match_quality = mq) 
-  
-  if (si == 0) {
-    match %<>%
-      rename_if_cust(.predicate = str_detect(names(.), names_change),
-                     .funs = ~str_c(., "_oj"),
-                     .cond = !is.na(names_change)) %>% 
-      select(case_id, emp_id, int_year, job_oj, month_start_job_oj, month_end_job_oj,
-             looped:ever_out_oj, match_quality) %>%
-      unique()
-  } else {
-    match %<>%
-      select(case_id, emp_id, int_year, looped:ever_out_oj, match_quality) %>%
-      unique()
-  }
-}
-
-# Create a list of variables to match over, and whether to use only matches
-# or single info for each quality
-match_base <- c("case_id", "int_year")
-match_list <- 
-  list(
-    append(match_base, c("month_start_job", "month_end_job", "job")),
-    append(match_base, c("month_start_job", "month_end_job")),
-    append(match_base, c("month_start_job", "job")),
-    append(match_base, c("month_end_job", "job")),
-    append(match_base, c("month_start_job")),
-    append(match_base, c("month_end_job")),
-    match_base,
-    match_base,
-    append(match_base, c("job"))
-)
-om <- c(0, 0, 0, 0, 0, 0, 1, 1, 0)
-si <- c(0, 0, 0, 0, 0, 0, 0, 1, 0)
-matches <- c()
-
-# Loop over quality 1:9
-for (i in seq_along(om)) {
-  matches %<>% c(list(match_data(on_jobs, ehr_es, matches, match_list[[i]],
-                               mq = i, om = om[i], si = si[i])))
-}
-
-match_rhs <- bind_rows(matches) %>% 
-  group_by(case_id, emp_id, int_year) %>% 
-  filter(match_quality == min(match_quality)) %>%
-  filter(n() == 1) %>% 
-  ungroup()
-
-
-# Match and Clean Data ----------------------------------------------------
-
+# Fill in missing data
 fill_mean <- c("indep_con", "on_call", "outsourced", "self_emp", "temp_work",
-               "traditional", "pre_trad", "ever_out_oj", "match_quality")
+               "traditional", "pre_trad", "ever_out_oj")
 
-View(matched %>% filter(match_flag_1))
-
-matched <- 
-  left_join(ehr_es, match_rhs, by = c("case_id", "emp_id", "int_year"),
-            suffix = c("_ehr", "_oj")) %>% 
+matched %<>% 
   # Fill in missing data by case_id, emp_id
   group_by(case_id, emp_id) %>% 
   mutate_at(fill_mean, fill_NA_mean) %>% 
   mutate(
-    # Flag matches where month_start and month_end don"t line up
-    match_flag_1 = (((month_start_job - month_start_job_oj != 0) %in% T) 
-                  | ((month_end_job - month_end_job_oj != 0) %in% T)),
+    # Flag matches where start month or end month not the same
+    match_flag_1 = (((month_start_job_ehr - month_start_job_oj != 0) %in% T) 
+                    | ((month_end_job_ehr - month_end_job_oj != 0) %in% T)),
     
     # Flag matches where self_emp:traditional are not 0/1
     # Or when job type not consistent for entire job
@@ -309,12 +197,6 @@ matched <-
       & (mean(temp_work) %in% c(0, 1))
       & (mean(traditional) %in% c(0, 1))
       ),
-    
-    # If match qualities disagree, set equal to lowest
-    match_quality = 
-      ifelse(!is.na(match_quality),
-             min(match_quality, na.rm = T), NA),
-    
     # Record Max Tenure for each job
     max_tenure = ifelse(max(tenure, na.rm = T) > 0, max(tenure, na.rm = T), 0)
   ) %>% 
@@ -323,8 +205,10 @@ matched <-
   mutate(count = n()) %>% 
   ungroup() %>% 
   # Create pbs to mearure if industry is in professional business services
-  mutate(pbs = 1 * (ind >= 7270 & ind <= 7790))
-
+  mutate(pbs = 1 * (ind >= 7270 & ind <= 7790)) %>% 
+  filter(count == 1) %>%
+  select(-looped, -count, -birth_year, -month_start_job_ehr:-month_end_job_ehr,
+         -month_start_job_oj:-month_end_job_oj)
 
 # Match Quality -----------------------------------------------------------
 
@@ -353,12 +237,10 @@ only_es_obs <- emp_sup %>%
   filter(female == 0) %>% 
   NROW()
 
-both_es_ehr_obs <- ehr_obs - only_ehr_obs
+both_es_ehr_obs <- ehr_es_obs - only_ehr_obs - only_es_obs
 
 # Jobs in ehr/es not matched with oj
-unmatched_obs <- sum(is.na(matched$match_quality[matched$female == 0]))
-
-matched <- filter(matched, !is.na(match_quality))
+unmatched_obs <- ehr_es_obs - NROW(matched[matched$female == 0,])
 
 # Jobs dropped from match because start/end dates don"t align
 flag_1_obs <- sum(matched$match_flag_1[matched$female == 0])
@@ -384,18 +266,9 @@ ever_out_count <- matched %>%
   group_by(ever_out_oj, ever_out_m) %>%
   count()
 
-# Create a match_quality table
-m_q_table <- table(matched$match_quality[matched$female == 0])
-looped_m_q_table <- table(matched$match_quality[matched$looped == 1 &
-                                                matched$female == 0])
-# For now, no quality 8 matches. Turn into factor to capture 0
-outsourced_m_q_table <- table(
-  factor(matched$match_quality[matched$outsourced == 1 & matched$female == 0],
-         levels = c("1", "2", "3", "4", "5", "6", "7", "8", "9")))
-
 # Look at oj missed
 on_jobs_miss <- on_jobs %>%
-  anti_join(matched, by = c("case_id", "int_year", "rank" = "job_oj")) %>% 
+  anti_join(matched, by = c("case_id", "int_year", "job" = "oj_job")) %>% 
   filter(female == 0)
 
 # Total jobs matched
@@ -404,14 +277,12 @@ m_outsourced <- sum(matched$outsourced[matched$female == 0])
 
 # How many missed, how many with info missed, how many outsourcing missed
 # Note that we should account for jobs matched using same type within year
-oj_missed <- NROW(on_jobs_miss[on_jobs_miss$female == 0,]) - looped_m_q_table[["8"]]
+oj_missed <- NROW(on_jobs_miss[on_jobs_miss$female == 0,])
 oj_info <- sum(!is.na(on_jobs$looped[on_jobs_miss$female == 0]))
-oj_info_missed <- (sum(!is.na(on_jobs_miss$looped[on_jobs_miss$female == 0])) 
-                   - looped_m_q_table[["8"]])
+oj_info_missed <- sum(!is.na(on_jobs_miss$looped[on_jobs_miss$female == 0])) 
 oj_outsourced <- sum(on_jobs$outsourced[on_jobs$female == 0], na.rm = T)
 oj_outsourced_missed <-
-  (sum(on_jobs_miss$outsourced[on_jobs$female == 0], na.rm = T) 
-   - outsourced_m_q_table[["8"]])
+  sum(on_jobs_miss$outsourced[on_jobs$female == 0], na.rm = T) 
 
 # Create Tables
 
@@ -489,7 +360,7 @@ table <- str_c(
         format_n(oj_outsourced),
         format_val(oj_outsourced_missed / oj_outsourced * 100, r = 2, s= 2)),
   " \\\\ \n"
-  )
+)
 
 
 bot_oj <- "\\bottomrule
@@ -525,72 +396,9 @@ write.table(str_c(s_table_top, table, s_bot),
             str_c(s_table_folder, "Match On Jobs.tex"),
             quote=F, col.names=F, row.names=F, sep="")
 
-# Look at match quality in matched overall and for outsourced
-
-labels <- c("1. Matched start date, end date, and rank",
-            "2. Matched start date and end date",
-            "3. Matched start date and rank",
-            "4. Matched end date and rank",
-            "5. Matched start date",
-            "6. Matched end date",
-            "7. Only unmatched job in year",
-            "8. Only unmatched job type in year",
-            "9. Matched rank")
-
-table <- "\\begin{tabular}{lrr}
-\\toprule
-Match Quality & Overall & Outsourced  \\\\ \\midrule
-"
-
-
-for (i in seq_along(labels)){
-  table <- str_c(table, labels[i],
-                format_n(m_q_table[[i]]),
-                format_n(outsourced_m_q_table[[i]]), "\\\\ \n")
-}
-
-table <- str_c(table, " \\midrule \n Total",
-                format_n(m_obs),
-                format_n(m_outsourced), "\\\\ \n")
-
-
-bot_q <- "\\bottomrule
-\\end{tabular}
-}
-\\caption{Match quality of final dataset.}
-\\label{match_quality}
-\\end{table}
-\\end{document}"
-
-write.table(str_c(table_top, table, bot_q),
-            str_c(table_folder, "NLSY79 Match Quality/Match Quality.tex"),
-            quote=F, col.names=F, row.names=F, sep="")
-
-# Save for Draft
-d_bot <- "\\bottomrule
-\\end{tabular}
-}
-\\caption{Match quality of final NLSY dataset. Observations are at the
-person-interview-job level. Match quality for each job is measured by the highest 
-quality match across interviews.}
-\\label{match_quality}
-\\end{table}"
-
-write.table(str_c(d_table_top, table, d_bot),
-            str_c(d_table_folder, "/Match Quality.tex"),
-            quote=F, col.names=F, row.names=F, sep="")
-
-# Save for Slides
-write.table(str_c(s_table_top, "\n \\small \n", table, s_bot),
-            str_c(s_table_folder, "/Match Quality.tex"),
-            quote=F, col.names=F, row.names=F, sep="")
-
-# # What is match quality by int_year? (Just to look at)
-# mq_year <- matched %>% 
-#   group_by(int_year) %>% 
-#   count(match_quality) %>% 
-#   pivot_wider(names_from = c(int_year), values_from = c(n))
-
+# Drop uneeded variables
+matched <- matched %>% 
+  select(-match_flag_1, -match_flag_2, -job, -oj_job)
 
 # Create Matched Jobs -----------------------------------------------------
 
@@ -633,18 +441,11 @@ matched_jobs <- list(.vars = lst(mean_vars, mode_vars, min_vars, max_vars),
   # Create pbs to mearure if industry is in professional business services
   mutate(pbs = 1 * (ind >= 7270 & ind <= 7790))
 
-# Drop uneeded variables
-matched <- matched %>% 
-  select(-month_start_job, -month_end_job, -job, -job_oj, -month_start_job_oj,
-         -month_end_job_oj, -looped, -match_flag_1, -match_flag_2,
-         -count, -looped, -birth_year)
-
 # Remove uneeded data sets to free up memory
-rm("matches", "match_rhs", "on_jobs_miss", "ever_out_count", "match_list",
-   "on_jobs", "ehr_es", "emp_sup", "hist_rost", "dem_gender",
-   "si", "om", "p_m", "bot", "oj_info", "oj_info_missed", "oj_missed",
-   "oj_obs", "m_q_table", "obs", "match_base", "labels", "end", "fill_mean",
-   "bot_oj", "bot_q", "mean_vars", "mode_vars", "max_vars", "min_vars", "mq_year")
+rm("on_jobs", "ehr_es", "emp_sup", "hist_rost", "dem_gender",
+   "oj_info", "oj_info_missed", "oj_missed", "ever_out_count",
+   "oj_obs", "obs", "match_base", "labels", "end", "fill_mean",
+   "bot_oj", "bot_q", "mean_vars", "mode_vars", "max_vars", "min_vars")
 
 # Merge Timeline With Job Info --------------------------------------------
 
@@ -854,11 +655,11 @@ timeline <- timeline[working == 1 & (is.na(emp_id) | emp_id < 1000),
 
 # Drop uneeded variables. 
 timeline <- timeline[, c(
-  "max", "non_na", "week_start_match", "week_end_match", "working_next", "working_prev",
+  "week_start_match", "week_end_match", "working_next", "working_prev",
   "emp_id_next", "emp_id_prev") := NULL]
 
 timeline_r <- timeline_r[, c(
-  "max", "non_na", "week_start_match", "week_end_match", "working_next", "working_prev",
+  "week_start_match", "week_end_match", "working_next", "working_prev",
   "emp_id_next", "emp_id_prev") := NULL]
 
 # Plot Timeline -----------------------------------------------------------
@@ -871,6 +672,9 @@ week_max <- round_date(ymd("2016-10-08"), "week")
 # week_max <- round_date(ymd("2012-09-18"), "week")
 
 # Graph observations (just graph men for final data set)
+values <- c("Working" = "blue", "Traditional" = "green", 
+            "Not Working" = "red", "Unemployed" = "purple")
+            
 temp <- timeline %>% 
   group_by(week) %>% 
   summarise(working_obs = sum(working, na.rm = T), 
@@ -883,10 +687,7 @@ temp <- timeline %>%
   geom_line(aes(x = week, y = non_working_obs), color = "red") +
   geom_line(aes(x = week, y = unemp_obs), color = "purple") +
   geom_vline(xintercept = week_max) +
-  scale_color_manual(name = "Observations", breaks = c(0, 1, 2, 3),
-                    values = c("blue", "green", "red", "purple"),
-                    labels = c("Working", "Traditional",
-                               "Not Working", "Unemployed")) +
+  scale_color_manual(name = "Observations", values = values) +
   labs(x = "Year", y = "Observations") +
   scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
   theme_light(base_size = 16) 
@@ -896,7 +697,6 @@ ggsave(str_c(figure_folder, "Observations.pdf"), height = height, width = width)
 timeline <- timeline[week <= week_max]
 
 timeline_r <- timeline_r[week <= week_max]
-
 
 # Observations ------------------------------------------------------------
 
@@ -954,6 +754,7 @@ bot <- "\\bottomrule
 write.table(str_c(table_top, table, bot),
             str_c(table_folder, "NLSY79 Match Quality/Number of Observations.tex"),
             quote=F, col.names=F, row.names=F, sep="")
+
 # Outsourcing Prevalence --------------------------------------------------
 
 # How common is outsourcing? Take the average of all person-job-weeks
@@ -1020,12 +821,59 @@ l <- list(
 write.xlsx(l, file=str_c(table_folder, "ind_occ.xlsx"))
 
 # Also make a table with relevant info (outsourced %, number of occupations, etc)
-outsourcing_occ_ss <- outsourcing_occ %>% 
+outsourcing_occ_ss <- outsourcing_occ %>%
   summarise(
     occupations = n(),
     occupations_any = sum(outsourced_per > 0),
     ho_occ = sum(ho_occ)
   )
+
+# Save a latex table of top 10 most outsourced jobs for low skilled (<ba) 
+# and high skilled (>ba) workers
+outsourcing_occ_ls <- timeline %>% 
+  filter(!is.na(outsourced), !is.na(occ), 
+         (less_hs == 1) | (hs == 1) | (aa == 1)) %>% 
+  as_survey_design(ids = case_id, weights=weight) %>%
+  group_by(occ) %>%  
+  summarise(outsourced_week_obs = unweighted(sum(outsourced))) %>% 
+  left_join(occ_names, by = "occ") %>% 
+  arrange(desc(outsourced_week_obs)) %>% 
+  head(10) %>% 
+  select(Occupation = description)
+
+# Save to Drafts and Slides
+caption_ls <- "Ten most common outsourced jobs for workers
+with less than a college degree in the NLSY. Amount of outsourcing is measured
+as the number of weeks workers report ``contracted out'' as job type."
+label_ls <- "out_occs_ls"
+print(xtable(outsourcing_occ_ls, caption=caption_ls, label=label_ls),
+      booktabs=TRUE,
+      file=str_c(d_table_folder, "Low Skilled 10 Outsourced Occ.tex"))
+
+print(xtable(outsourcing_occ_ls), booktabs=TRUE,
+      file=str_c(s_table_folder, "Low Skilled 10 Outsourced Occ.tex"))
+
+outsourcing_occ_hs <- timeline %>% 
+  filter(!is.na(outsourced), !is.na(occ), (ba == 1) | (plus_ba == 1)) %>% 
+  as_survey_design(ids = case_id, weights=weight) %>%
+  group_by(occ) %>%  
+  summarise(outsourced_week_obs = unweighted(sum(outsourced))) %>% 
+  left_join(occ_names, by = "occ") %>% 
+  arrange(desc(outsourced_week_obs)) %>% 
+  head(10) %>% 
+  select(Occupation = description)
+
+# Save to Drafts and Slides
+caption_hs <- "Ten most common outsourced jobs for workers
+with a college degree or more in the NLSY. Amount of outsourcing is measured
+as the number of weeks workers report ``contracted out'' as job type."
+label_hs <- "out_occs_ls"
+print(xtable(outsourcing_occ_hs, caption=caption_hs, label=label_hs),
+      booktabs=TRUE,
+      file=str_c(d_table_folder, "High Skilled 10 Outsourced Occ.tex"))
+
+print(xtable(outsourcing_occ_hs), booktabs=TRUE,
+      file=str_c(s_table_folder, "High Skilled 10 Outsourced Occ.tex"))
 
 # Match Occupation Outsourcing Info ---------------------------------------
 
@@ -1111,7 +959,6 @@ write.table(str_c(d_table_top, table, bot),
 write.table(str_c(s_table_top, table, s_bot),
             str_c(s_table_folder, "Occupation Outsourcing.tex"),
             quote=F, col.names=F, row.names=F, sep="")
-
 
 # Save datasets
 fwrite(matched, str_c(clean_folder, "matched.csv"), row.names = FALSE)

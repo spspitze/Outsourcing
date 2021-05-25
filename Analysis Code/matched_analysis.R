@@ -3,6 +3,7 @@
 
 rm(list = ls())
 
+library(dineq)
 library(weights)
 library(magrittr)
 library(estimatr)
@@ -21,8 +22,9 @@ d_table_folder <- "../Drafts/Draft Tables/"
 s_table_folder <- "../Slides/Slide Tables/"
 
 # For saving graphs
-aspect_ratio <- 1.62
-height <- 7
+# aspect_ratio <- 1.62
+aspect_ratio <- 1.77
+height <- 6
 width <- height * aspect_ratio
 
 # Download data and filter out women (only look at men)
@@ -177,7 +179,7 @@ group-digits          = false
 }"
 
 # Create a default top for Draft tables (no resizebox)
-d_table_top <- "\\begin{table}[h!]
+d_table_top <- "\\begin{table}[t!]
 \\centering 
 { \n"
 
@@ -393,6 +395,8 @@ Stars represent significant difference at the .10 level *,
 
 # For slides, keep only some rows
 d_center <- c_center[c(1:18, 27),]
+# Also save just outsourced for slides
+s_center <- d_center[c(5:19), c(1:3, 6)]
 
 top <- "\\begin{tabular}{lSSSS}
 \\toprule
@@ -400,11 +404,16 @@ top <- "\\begin{tabular}{lSSSS}
 Variable & {Ever} & {Never} & {Ever} & {Never} \\\\ \\midrule
 "
 
+s_top <- "\\begin{tabular}{lSS}
+\\toprule
+Variable & {Ever Outsourced} & {Never Outsourced} \\\\ \\midrule
+"
+
 bot <- "\\bottomrule
 \\end{tabular}
 }
-\\caption{Demographic statistics from the NLSY for those who are ever outsourced in On Jobs
-versus those who never are and for those who ever work in high outsourcing (HO)
+\\caption{Demographic statistics from the NLSY for man who are ever outsourced
+versus those who never are and for men who ever work in high outsourcing (HO)
 occupations versus those who never do. Observations are at the person level
 from an individual's first survey post-2000 and summary statistics are weighted at
 the person level. Stars represent significant difference at the .10 level *,
@@ -429,7 +438,7 @@ write.table(d_center, file_1, quote=F, col.names=F, row.names=F, sep = "")
 d_center <- readChar(file_1, nchars = 1e6)
 
 # Save for Drafts and Slides
-write.table(str_c(d_table_top, top, c_center, bot),
+write.table(str_c(d_table_top, "\n \\small", top, c_center, bot),
             str_c(d_table_folder, "Demographics Comparison.tex"),
             quote=F, col.names=F, row.names=F, sep="")
 
@@ -438,6 +447,16 @@ write.table(str_c(d_table_top, "\n \\tiny \n", top, d_center, s_bot),
             str_c(s_table_folder, "Demographics Comparison.tex"),
             quote=F, col.names=F, row.names=F, sep="")
 
+# Save just ever vs never outsourced
+write.table(s_center, file_1, quote=T, col.names=F, row.names=F)
+s_center <- read.table(file_1, sep = "")
+write.table(s_center, file_1, quote=F, col.names=F, row.names=F, sep = "")
+s_center <- readChar(file_1, nchars = 1e6)
+
+# Table to long for resize to work, so manually set size
+write.table(str_c(d_table_top, "\n \\scriptsize", s_top, s_center, s_bot),
+            str_c(s_table_folder, "Demographics Comparison Basic.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
 
 # Job Number Statistics --------------------------------------------------
 
@@ -739,7 +758,7 @@ Variable & {Outsourced} & {Traditional} & {Ind. Contractor} & {Temp} \\\\ \\midr
         
         # Just save outsourced and traditional
         if (ty == 2){
-          write.table(str_c(d_table_top, top_j_o_t, center_o_t, bot_o_t),
+          write.table(str_c(d_table_top, "\n \\small", top_j_o_t, center_o_t, bot_o_t),
                       str_c(d_table_folder, "Job Summary Statistics ", save[k], 
                             " Out + Trad.tex"),
                       quote=F, col.names=F, row.names=F, sep="")
@@ -874,7 +893,6 @@ Stars represent significant difference from outsourced jobs at the .10 level *,
                     " HO Occupation vs Not.tex"),
               quote=F, col.names=F, row.names=F, sep="")
 }
-
 
 # Summarize Union NA ------------------------------------------------------
 
@@ -1605,6 +1623,9 @@ for (loop in 1:2) {
               quote=F, col.names=F, row.names=F, sep="")
 }
 
+
+# Type Regressions --------------------------------------------------------
+
 # How much does type matter? Run full regression but add types in groups
 # 1. Just outsourced vs not
 # 2. Separate self_emp and indep_con
@@ -1752,6 +1773,222 @@ for (loop in 1:2) {
   }
 }
 
+# Education Regressions ---------------------------------------------------
+
+# What if we interact job status with education level?
+# Use full regressions with worker fixed effects.
+# Two strategies to estimate effects
+# 1. Have dummies for each type * educ except traditional + educ dummies 
+# 2. Run standard regression for each educ type (to check if results are reasonable)
+types <- c("outsourced", "self_emp", "indep_con", "temp_work", "on_call")
+educ_levels <- c("less_hs", "hs", "aa", "ba", "plus_ba", "educ_other")
+
+educ_type <- str_c("I(", rep(types, each=6), " * round(", rep(educ_levels, times=5), "))")
+
+center_d <- rbind("Log Real", "Hourly Wages", "Log Real", "Weekly Wages",
+                  "Hours Worked", "Per Week", "Part-Time", "",
+                  "Job Satisfaction", "(Lower Better)", 
+                  "Any Benefits", "", "Health", "Insurance")
+
+educ_descriptions <- c("less than a highschool diploma", "a highschool diploma",
+                      "a associate's degree", "a bachelor's degree",
+                      "more than a bachelor's degree")
+educ_labels <- c("lhs", "hs", "aa", "ba", "pba")
+educ_saves <- c("LHS", "HS", "AA", "BA", "PBA")
+
+top <- "\\begin{tabular}{lSSSSSSS}
+\\toprule
+& \\multicolumn{4}{c}{Outsourced Times} & &  \\\\
+Outcome & {Less HS} & {HS} & {AA} & {BA} & {Plus BA} & {$R^2$} & {Observations} \\\\\\midrule
+"
+
+top_s <- "\\begin{tabular}{lSSS}
+\\toprule
+Outcome & {Outsourced} & {$R^2$} & {Observations} \\\\\\midrule
+"
+
+for (loop in 1:2) {
+
+  sample <- samples[loop]
+  s_label <- s_labels[loop]
+  s_save <- s_saves[loop]
+  s_explanation <- s_explanations[loop]
+  y <- if (loop == 1) " and year" else "and year started and ended job"
+  c_educ <- c()
+  c_educ_s <- list(c(), c(), c(), c(), c())
+
+  for (ind in seq_along(var_r)) {
+
+    var <- var_r[ind]
+    var_name <- var_names[ind]
+    label <- labels[ind]
+
+    ind_vars <- c(controls, tenure, educ_type, educ_levels)
+    # For eq with only one type, need job types
+    ind_vars_s <- c(controls, tenure, types)
+    fe_vars <- c(fixed_effects, "case_id", "occ")
+    if (loop == 1) {
+      fe_vars <- c(fe_vars, "int_year")
+    } else {
+      fe_vars <- c(fe_vars, "I(year(week_start_job))", "I(year(week_end_job))")
+    }
+
+    hours_text <- ""
+    if (!(var %in% c("log_real_wkly_wage", "health", "hours_week", "part_time",
+                     "any_benefits"))){
+      ind_vars %<>% c(hours)
+      ind_vars_s %<>% c(hours)
+      hours_text <- " hours worked per week, part-time status,"
+    }
+
+    eq <- create_formula(var, ind_vars)
+    eq_s <- create_formula(var, ind_vars_s)
+    fe <- create_formula("", fe_vars)
+
+    # Run regression both for matched and matched_jobs
+    temp <- lm_robust(eq, data = dfs[[loop]], weights = weight,
+                      subset = !is.na(region) & !is.na(marital_status)
+                      & !is.na(msa) & !is.na(occ),
+                      fixed_effects = !!fe,
+                      clusters = as_factor(sample_id),
+                      se_type = "stata", try_cholesky = T)
+    
+    c_educ %<>% rbind(
+      cbind(
+        format_val(temp$coefficients[educ_type[1]], r=3, s=3,
+                   star=p_stars(temp$p.value[educ_type[1]])),
+        format_val(temp$coefficients[educ_type[2]], r=3, s=3,
+                   star=p_stars(temp$p.value[educ_type[2]])),
+        format_val(temp$coefficients[educ_type[3]], r=3, s=3,
+                   star=p_stars(temp$p.value[educ_type[3]])),
+        format_val(temp$coefficients[educ_type[4]], r=3, s=3,
+                   star=p_stars(temp$p.value[educ_type[4]])),
+        format_val(temp$coefficients[educ_type[5]], r=3, s=3,
+                   star=p_stars(temp$p.value[educ_type[5]])),
+        format_val(temp$r.squared), format_n(lm_N(temp)), "\\\\"),
+      cbind(
+        format_se(temp$std.error[educ_type[1]], r=3, s=3),
+        format_se(temp$std.error[educ_type[2]], r=3, s=3),
+        format_se(temp$std.error[educ_type[3]], r=3, s=3),
+        format_se(temp$std.error[educ_type[4]], r=3, s=3),
+        format_se(temp$std.error[educ_type[5]], r=3, s=3),
+        " & ", " & ", "\\\\[2pt]")
+    )
+    
+    # Now run the equation for each subset of education level (except other educ)
+    for (e_l in 1:5) {
+      temp_data <- filter(dfs[[loop]], !!rlang::sym(educ_levels[e_l]) == 1)
+      temp <- lm_robust(eq_s, data = temp_data, weights = weight,
+                        subset = !is.na(region) & !is.na(marital_status)
+                        & !is.na(msa) & !is.na(occ),
+                        fixed_effects = !!fe,
+                        clusters = as_factor(sample_id),
+                        se_type = "stata", try_cholesky = T)
+      
+      stars <- p_stars(temp$p.value["outsourced"])
+      
+      c_educ_s[[e_l]] %<>% rbind(
+        cbind(format_val(temp$coefficients["outsourced"], r=3, s=3, star=stars),
+              format_val(temp$r.squared), format_n(lm_N(temp)), "\\\\"),
+        cbind(format_se(temp$std.error["outsourced"], r=3, s=3),
+              " & ", " & ", "\\\\[2pt]")
+      )
+    } 
+  }
+
+  c_educ <- cbind(center_d, c_educ)
+  # For slides, just save LRW Wages and Health
+  s_c_educ <- c_educ[c(3:4,13:14),]
+
+  # Do weird stuff to create LaTeX output
+  r_folder <- str_c(table_folder, "Junk/")
+  file_1 <- str_c(r_folder, "center.txt")
+  write.table(c_educ, file_1, quote=T, col.names=F, row.names=F)
+  c_educ <- read.table(file_1, sep = "")
+  write.table(c_educ, file_1, quote=F, col.names=F, row.names=F, sep = "")
+  c_educ <- readChar(file_1, nchars = 1e6)
+
+  bot <- str_c("\\bottomrule
+   \\end{tabular}
+   }
+   \\caption{Regressions of worker outsourcing status by education level
+   on job outcomes in the NLSY. Regressions include education dummies alone
+   and multiplied by job type (default is traditional). Regressions also include
+   worker and occupation fixed effects, a quartic in age and job tenure, ", y, ",
+   union status, dummies for region, whether in an MSA or central city,
+   marital status, and number of children total and in household.
+   Regressions for log real hourly wages and job satisfaction also
+   include controls for hours worked per week and part-time status.
+  All observations are at the ", sample, " level", s_explanation,
+  ". All regressions are weighted at the person level and all standard errors are
+  clustered by demographic sample.
+  Stars represent significant at the .10 level *, .05 level **, and .01 level ***.}
+  \\label{ed_regs", s_label, "}
+  \\end{table}"  )
+
+  write.table(str_c(table_top, siunitx, top, c_educ, bot, "\n \\end{document}"),
+              str_c(table_folder, "NLSY79 Regressions/", s_save, " Education All.tex"),
+              quote=F, col.names=F, row.names=F, sep="")
+  
+  # For Jobs, also save for Drafts and Slides (Tables are wide, so fit to width)
+  if (loop == 2) {
+    write.table(str_c(s_table_top, top, c_educ, bot),
+                str_c(d_table_folder, s_save, " Education Regressions All.tex"),
+                quote=F, col.names=F, row.names=F, sep="")
+    
+    write.table(s_c_educ, file_1, quote=T, col.names=F, row.names=F)
+    s_c_educ <- read.table(file_1, sep = "")
+    write.table(s_c_educ, file_1, quote=F, col.names=F, row.names=F, sep = "")
+    s_c_educ <- readChar(file_1, nchars = 1e6)
+    
+    write.table(str_c(s_table_top, top, s_c_educ, s_bot),
+                str_c(s_table_folder, "Job Regressions Education All.tex"),
+                quote=F, col.names=F, row.names=F, sep="")
+  }
+  
+  
+  # Now save by education level
+  for (e_l in 1:5) {
+    educ_description <- educ_descriptions[e_l]
+    educ_label <- educ_labels[e_l]
+    educ_save <- educ_saves[e_l]
+    
+    c_save <- cbind(center_d, c_educ_s[[e_l]])
+    
+    # Do weird stuff to create LaTeX output
+    r_folder <- str_c(table_folder, "Junk/")
+    file_1 <- str_c(r_folder, "center.txt")
+    write.table(c_save, file_1, quote=T, col.names=F, row.names=F)
+    c_save <- read.table(file_1, sep = "")
+    write.table(c_save, file_1, quote=F, col.names=F, row.names=F, sep = "")
+    c_save <- readChar(file_1, nchars = 1e6)
+    
+    bot_s <- str_c("\\bottomrule
+     \\end{tabular}
+     }
+     \\caption{Regressions of worker outsourcing status for workers who's 
+     highest education level is ", educ_description,  " 
+     on job outcomes in the NLSY. All regressions include controls for job type
+     (traditional job is default)
+     worker and occupation fixed effects, a quartic in age and job tenure, ", y, ",
+     union status, dummies for region, whether in an MSA or central city,
+     marital status, and number of children total and in household.
+     Regressions for log real hourly wages and job satisfaction also
+     include controls for hours worked per week and part-time status.
+    All observations are at the ", sample, " level", s_explanation,
+                 ". All regressions are weighted at the person level and all standard errors are
+    clustered by demographic sample.
+    Stars represent significant at the .10 level *, .05 level **, and .01 level ***.}
+    \\label{ed_regs", s_label, "_", educ_label,  "}
+    \\end{table}"  )
+    
+    write.table(str_c(table_top, siunitx, top_s, c_save, bot_s, "\n \\end{document}"),
+                str_c(table_folder, "NLSY79 Regressions/", s_save,
+                      " Education ", educ_save, ".tex"),
+                quote=F, col.names=F, row.names=F, sep="")
+  }
+
+}
 
 # Plots -------------------------------------------------------------------
 
@@ -2006,7 +2243,6 @@ for (ob in 1:2) {
     }
   }
 
-
 write_csv(data_moments, str_c(clean_folder, "data_moments.csv"))
 write_csv(ecdf, str_c(clean_folder, "data_ecdf.csv"))
 
@@ -2058,12 +2294,15 @@ write.table(str_c(top, center, bot),
             quote=F, col.names=F, row.names=F, sep="")
 
 
+
+# Wage Distribution HO Occs -----------------------------------------------
+
 # Look at log real hrly wages in matched_jobs for traditional
 # ho_occ vs not. Also run a full regression (minus occ fe) 
 # and compare residuals
 
 temp <- matched_jobs %>% 
-  filter(!is.na(log_real_wkly_wage), !is.na(ho_occ), traditional == 1) %>% 
+  filter(!is.na(log_real_wkly_wage), !is.na(ho_occ)) %>% 
   ggplot(aes(log_real_wkly_wage, fill = factor(ho_occ))) +
   geom_density(alpha = 0.2) +
   labs(x = "Log Real Weekly Wage", y = "Density") +
@@ -2073,10 +2312,11 @@ temp <- matched_jobs %>%
   scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
   theme_light(base_size = 16) 
 
-ggsave(str_c(figure_folder, "Jobs LRW Wage Traditional HO Occ v Not.pdf"),
+ggsave(str_c(figure_folder, "Jobs LRW Wage HO Occ.pdf"),
        height = height, width = width)
 
-eq <- create_formula("log_real_wkly_wage", c(controls, tenure, "outsourced", types))
+# eq <- create_formula("log_real_wkly_wage", c(controls, tenure, "outsourced", types))
+eq <- create_formula("log_real_wkly_wage", c(controls, tenure))
 fe <- create_formula("~", c("region", "marital_status", "msa", "case_id"))
 
 reg <- lm_robust(eq, matched_jobs,
@@ -2118,7 +2358,47 @@ temp <- df %>%
   scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
   theme_light(base_size = 16) 
 
-ggsave(str_c(figure_folder, "Jobs LRW Wage Residuals Traditional HO Occ v Not.pdf"),
+ggsave(str_c(figure_folder, "Jobs LRW Wage Residuals HO Occ.pdf"),
+       height = height, width = width)
+
+# Get more sophisticated. Use RIF regressions on various quartiles of the
+# regression and plot how ho_occ affects lrw wages
+# Note: program can't handle fixed effects, so include everything for now
+# Also can't subset, so need to ensure correct dataset upfront
+data_rif <- matched_jobs %>% 
+  filter(!is.na(log_real_wkly_wage), !is.na(ho_occ), !is.na(region),
+         !is.na(marital_status), !is.na(msa), !is.na(ho_occ))
+
+eq_rif <- create_formula(
+  "log_real_wkly_wage",
+  c("ho_occ", controls, tenure, "factor(region)",
+    "factor(marital_status)", "factor(msa)", "factor(case_id)")
+  )
+
+quantiles <- seq(0.05, 0.95, 0.05)
+
+reg_rif <- rifr(eq_rif, data_rif, weights = "weight", method = "quantile",
+                quantile = quantiles, kernel = "gaussian")
+
+# Get point estimates and ci. Turn into a df to plot
+coeffs <- reg_rif$Coef["ho_occ", ]
+up_ci <- coeffs + reg_rif$SE["ho_occ", ] * 1.96
+low_ci <- coeffs - reg_rif$SE["ho_occ", ] * 1.96
+
+df_rif <- tibble(
+  quantiles, coeffs, up_ci, low_ci
+)
+
+temp <- df_rif %>% 
+  ggplot(aes(x=quantiles, y=coeffs)) +
+  geom_hline(yintercept=0, linetype="dashed", color = "red", size=0.5) +
+  geom_point() +
+  geom_errorbar(aes(ymin=low_ci, ymax=up_ci), width=.02) +
+  labs(x = "Quantile", y = "HO Occupation") +
+  xlim(0, 1) +
+  theme_light(base_size = 16)
+
+ggsave(str_c(figure_folder, "Jobs LRW Wage HO Occ RIF.pdf"),
        height = height, width = width)
 
 
@@ -2157,7 +2437,7 @@ temp <- df %>%
   ggplot(aes(x = residual, y = max_tenure, color = factor(outsourced))) +
   geom_point(alpha = 0.25) +
   geom_smooth(method = "lm", formula = y ~ x) +
-  labs(x = str_c("Residual Log Real Weekly Wage"), y = "Max Tenure") +
+  labs(x = "Residual Log Real Weekly Wage", y = "Max Tenure") +
   scale_color_manual(name = "Job Type", breaks = c(0, 1),
                      values = c("blue", "red"),
                      labels = c("Traditional", "Outsourced")) +
