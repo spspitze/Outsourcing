@@ -11,6 +11,8 @@
 
 rm(list = ls())
 
+library(outsourcingtables)
+library(zeallot)
 library(dineq)
 library(rlang)
 library(weights)
@@ -117,7 +119,7 @@ format_per <- function(var, r = 2, s = 2) {
   str_c(" & ", format(round(var * 100, r), nsmall = s), " ")
 }
 
-# Create a function to sum rows of a variable, droppin NAs
+# Create a function to sum rows of a variable, droping NAs
 r_sum <- function(...) {
   rowSums(cbind(...), na.rm = T)
 }

@@ -44,7 +44,7 @@ matched_jobs <- read_csv(str_c(clean_folder, "matched_jobs.csv"),
                          )) %>% 
   filter(female == 0)
 
-# Some figures calculated are useful for calbirating the model.
+# Some figures calculated are useful for calibrating the model.
 # Use these to update data_moments
 data_moments <- read_csv(str_c(clean_folder, "data_moments.csv"),
                          col_types = cols(
