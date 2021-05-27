@@ -2,18 +2,16 @@
 # It cleans it then saves it as emp_sup_clean
 rm(list = ls())
 
-library(magrittr)
-library(multiplex)
+library(outsourcing)
+library(zeallot)
 library(tidyverse)
 
 # Folders of interest
-raw_folder <- "../Raw Data/"
-clean_folder <- "../Cleaned Data/"
+folders <- name_folders()
+c(raw_folder, clean_folder, table_folder, figure_folder,
+  d_table_folder, s_table_folder) %<-% folders 
 
-new_data <- read_table2(str_c(raw_folder, "emp_sup_raw.dat"), 
-                        col_types = cols(.default = col_double())) 
-
-names(new_data) <- c(
+col_names <- c(
   "CASEID_1979",
   "QES-84D.01_2002",
   "QES-84D.02_2002",
@@ -539,6 +537,9 @@ names(new_data) <- c(
   "JOB_UID_EMPROSTER7_2016",
   "JOB_UID_EMPROSTER8_2016")
 
+new_data <- read_table2(str_c(raw_folder, "emp_sup_raw.dat"), 
+                        col_names = col_names
+                        col_types = cols(.default = col_double())) 
 
 # Handle missing values
 
@@ -548,25 +549,6 @@ new_data[new_data == -3] = NA  # Invalid missing
 new_data[new_data == -4] = NA  # Valid missing 
 new_data[new_data == -5] = NA  # Non-interview 
 
-# Create a function that, given a variable name and data set, returns T
-# if variable is in names, F else
-check <- function(var, data){
-  return(var %in% colnames(data))
-}
-
-# Create a function to take a variable name and data set. Return the varibale if
-# filled. If NA, check if other"s in group that are not NA. If all are NA, return
-# NA, otherwise return mean
-fill_NA_mean <- function(vector){
-  return(
-    ifelse(
-      !is.na(vector), vector,
-      ifelse(all(is.na(vector)), NA, mean(vector, na.rm = T))
-      )
-    )
-}
-
-
 # Define Variables --------------------------------------------------------
 
 # Here is a list of variable names that will be useful later
@@ -575,32 +557,39 @@ q_ben <- "QES-84"
 q_sat <- "QES-89.0"
 
 ben_let <- c("E", "F", "G", "H", "I", "J", "K", "L", "M")
-ben_name <- c("health", "life", "dental", "maternity", "retirement", "flex_sched",
-         "profit_share", "train_school", "childcare")
+ben_name <- c("health", "life", "dental", "maternity",
+              "retirement", "flex_sched", "profit_share", 
+              "train_school", "childcare")
 
 # Rename case_id
 new_data <- rename(new_data, case_id = CASEID_1979)
 
-# Loop over years and jobs (only look at first 5 jobs, that's all we have data on)
+# Loop over years and jobs (only look at first 5 jobs, 
+# that's all we have data on)
 for (job in 1:5){
   for (year in seq(2002, 2016, by=2)){
     
     # Get UID number
-    if (check(str_c(q_uid, job, "_", year), new_data)){
-      new_data %<>% 
-        rename(!!str_c("emp_id_", job, "_", year) := !!str_c(q_uid, job, "_", year))
+    if (check_exists(str_c(q_uid, job, "_", year), new_data)){
+      new_data <- rename(new_data, 
+                         !!str_c("emp_id_", job, "_", year) := 
+                           !!str_c(q_uid, job, "_", year))
     }
     
-    # For any benefits, keep only if == 0 (these respondents skiped the question below)
-    new_data %<>% 
-      mutate(!!str_c("any_benefits", job, year, sep = "_") := 
-               ifelse(.[[str_c(q_ben, "D.0", job, "_", year)]] == 0, 0, NA)
+    # For any benefits, keep only if == 0 
+    # (these respondents skiped the question below)
+    new_data <-
+      mutate(new_data, 
+             !!str_c("any_benefits", job, year, sep = "_") :=
+               ifelse(
+                 new_data[[str_c(q_ben, "D.0", job, "_", year)]] == 0,
+                 0, NA)
       )
     
     # Job satisfaction
-    if (check(str_c(q_sat, job, "_", year), new_data)){
-      new_data %<>% 
-        rename(!!str_c("job_sat", job, year, sep = "_") := 
+    if (check_exists(str_c(q_sat, job, "_", year), new_data)){
+      new_data <-
+        rename(new_data, !!str_c("job_sat", job, year, sep = "_") := 
                  !!str_c(q_sat, job, "_", year))
     }
   }
@@ -609,22 +598,28 @@ for (job in 1:5){
   # Naming is different in 2002-2004 (uses name)
   for (ben in 1:9){
     for (year in c(2002, 2004)) {
-      new_data %<>%
-        mutate(!!str_c(ben_name[ben], job, year, sep = "_") :=
+      new_data <-
+        mutate(new_data, 
+               !!str_c(ben_name[ben], job, year, sep = "_") :=
                  ifelse(
-                   !is.na(.[[str_c("any_benefits", job, year, sep = "_")]]), 0,
-                   .[[str_c(q_ben, ben_let[ben], ".0", job, "_", year)]]
+                   !is.na(new_data[[str_c("any_benefits", job,
+                                          year, sep = "_")]]), 0,
+                   new_data[[str_c(q_ben, ben_let[ben], ".0",
+                                   job, "_", year)]]
                    )
                )
     }
     # In 2006-2016, use numbers instead
     for (year in seq(2006, 2016, by = 2)) {
-      new_data %<>% 
-        mutate(
+      new_data <-
+        mutate(new_data,
           !!str_c(ben_name[ben], job, year, sep = "_") := 
             ifelse(
-              !is.na(.[[str_c("any_benefits", job, year, sep = "_")]]), 0,
-              .[[str_c(q_ben, "E.0", job, "~00000", ben, "_", year)]]
+              !is.na(new_data[[str_c("any_benefits", job, year,
+                                     sep = "_")]]),
+              0,
+              new_data[[str_c(q_ben, "E.0", job, "~00000",
+                              ben, "_", year)]]
               )
           )
     }
@@ -641,34 +636,37 @@ constant <- "case_id"
 # Variables we keep
 keep <- str_c("^(", str_c(vary, collapse = "|"), "|", constant, ")")
 
-long <- new_data %>% 
-  dplyr::select(matches(keep)) %>% 
-  gather(matches(str_c("^(", str_c(vary, collapse="|"), ")")), key=key, value=val) %>%
-  extract(key, into=c("variable", "key"), regex="(\\D+)(_._20..)") %>%
-  filter(!is.na(variable), !is.na(key)) %>%
-  spread(key=variable, value=val) %>%
-  mutate(key = substring(key, 2)) %>%
-  separate(key, sep="_", into=c("job", "int_year"), convert = T) %>% 
+long <- new_data |> 
+  dplyr::select(matches(keep)) |> 
+  gather(matches(str_c("^(", str_c(vary, collapse="|"), ")")), 
+         key=key, value=val) |>
+  extract(key, into=c("variable", "key"), regex="(\\D+)(_._20..)") |>
+  filter(!is.na(variable), !is.na(key)) |>
+  spread(key=variable, value=val) |>
+  mutate(key = substring(key, 2)) |>
+  separate(key, sep="_", into=c("job", "int_year"), convert = T) |> 
   # Keep only observations with at least one job specific bit of data
-  filter_at(vars(-case_id, -job, -int_year), any_vars(!is.na(.))) %>% 
+  filter_at(vars(-case_id, -job, -int_year), any_vars(!is.na(.))) |> 
   filter(!is.na(emp_id)) 
 
 vars_fill <- c(ben_name, c("any_benefits", "job_sat"))
 
-long %<>% 
-  # Calculate if recieved any benefits. 
+long <- long |> 
+  # Calculate if received any benefits. 
   mutate(
-    any_benefits = pmax(health, life, dental, maternity, retirement, flex_sched,
-                        profit_share, train_school, childcare, na.rm = T)
+    any_benefits = pmax(health, life, dental, maternity, retirement,
+                        flex_sched, profit_share, train_school, 
+                        childcare, na.rm = T)
   ) 
-# %>% 
+# |> 
 #   # For missing data, If other job years have data, take averages
-#   group_by(case_id, emp_id) %>% 
-#   mutate_at(vars_fill, fill_NA_mean) %>% 
+#   group_by(case_id, emp_id) |> 
+#   mutate_at(vars_fill, fill_NA_mean) |> 
 #   ungroup() 
 
-# # Data from 2014 and 2016 interviews in on jobs are less reliable. Drop these years
-# long %<>% filter(int_year < 2014) 
+# Data from 2014 and 2016 interviews in on jobs are less reliable.
+# Drop these years
+# long <- filter(long, int_year < 2014) 
 
 # Save the data
 write_csv(long, str_c(clean_folder, "emp_sup_clean.csv"))

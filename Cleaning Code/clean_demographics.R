@@ -2,19 +2,16 @@
 # It cleans it then saves it as demographics_clean
 rm(list = ls())
 
-library(magrittr)
-library(DescTools)
-library(multiplex)
+library(outsourcing)
+library(zeallot)
 library(tidyverse)
 
 # Folders of interest
-raw_folder <- "../Raw Data/"
-clean_folder <- "../Cleaned Data/"
+folders <- name_folders()
+c(raw_folder, clean_folder, table_folder, figure_folder,
+  d_table_folder, s_table_folder) %<-% folders 
 
-new_data <- read_table2(str_c(raw_folder, "demographics_raw.dat"),
-                        col_types = cols(.default = col_double()))
-
-names(new_data) <- c(
+col_names <- c(
   "CASEID_1979",
   "Q1-3_A~Y_1979",
   "SAMPLE_ID_1979",
@@ -24,7 +21,7 @@ names(new_data) <- c(
   "Q3-10B_1989",
   "Q3-10B_1990",
   "Q3-10B_1991",
-  "Q3-10B_1992",
+  "Q3-10B_1992", 
   "Q3-10B_1993",
   "Q3-10B_1994",
   "Q3-10B_1996",
@@ -88,6 +85,10 @@ names(new_data) <- c(
   "NUMCH16_2016"
   )
 
+new_data <- read_table2(str_c(raw_folder, "demographics_raw.dat"),
+                        col_names = col_names,
+                        col_types = cols(.default = col_double()))
+
 # Handle missing values
 
 new_data[new_data == -1] = NA  # Refused 
@@ -102,14 +103,15 @@ new_data[new_data == -5] = NA  # Non-interview
 new_data <- rename(new_data, "case_id" = CASEID_1979, "sample_id" = SAMPLE_ID_1979)
 
 # Define female, black, and hispanic
-new_data %<>% 
+new_data <- new_data |>
   mutate(female = 1 * (SAMPLE_SEX_1979 == 2),
          black = 1 * (SAMPLE_RACE_78SCRN == 2),
          hispanic = 1 * (SAMPLE_RACE_78SCRN == 1)
   )
 
 # Find birth_year (will use it to calculate age later)
-new_data %<>% mutate(!!str_c("birth_year") := 1900 + `Q1-3_A~Y_1979`)
+new_data <- mutate(new_data, !!str_c("birth_year") := 
+                     1900 + `Q1-3_A~Y_1979`)
 
 # Education questions
 q_hb <- "Q3-10B_"
@@ -129,22 +131,24 @@ q_nch <- "NUMCH"
 # For 2002, need to find pmax from 1998 onwards 
 new_data$educ_2002 <- 
   pmax(new_data[[str_c(q_hb, 1988)]], new_data[[str_c(q_hb, 1989)]],
-                       new_data[[str_c(q_hb, 1990)]], new_data[[str_c(q_hb, 1991)]],
-                       new_data[[str_c(q_hb, 1992)]], new_data[[str_c(q_hb, 1993)]],
-                       new_data[[str_c(q_hb, 1994)]], new_data[[str_c(q_hb, 1996)]],
-                       new_data[[str_c(q_hb, 1998)]], new_data[[str_c(q_hb, 2000)]],
-                       new_data[[str_c(q_hb, 2002)]], na.rm=TRUE)
+       new_data[[str_c(q_hb, 1990)]], new_data[[str_c(q_hb, 1991)]],
+       new_data[[str_c(q_hb, 1992)]], new_data[[str_c(q_hb, 1993)]],
+       new_data[[str_c(q_hb, 1994)]], new_data[[str_c(q_hb, 1996)]],
+       new_data[[str_c(q_hb, 1998)]], new_data[[str_c(q_hb, 2000)]],
+       new_data[[str_c(q_hb, 2002)]], na.rm=TRUE)
 
 # For 2004 onwards, just take pmax of this year and last year
 # (Variable used changes in 2008)
 for (year in seq(2004, 2006, by=2)){
   new_data[[str_c("educ_", year)]] <- 
-    pmax(new_data[[str_c(q_hb, year)]], new_data[[str_c("educ_", year - 2)]], na.rm=TRUE)
+    pmax(new_data[[str_c(q_hb, year)]], 
+         new_data[[str_c("educ_", year - 2)]], na.rm=TRUE)
 }
 
 for (year in seq(2008, 2016, by=2)){
   new_data[[str_c("educ_", year)]] <- 
-    pmax(new_data[[str_c(q_hd, year)]], new_data[[str_c("educ_", year - 2)]], na.rm=TRUE)
+    pmax(new_data[[str_c(q_hd, year)]], 
+         new_data[[str_c("educ_", year - 2)]], na.rm=TRUE)
 }
 
 # Starting in 2014, work backwards and fill in NA with future degree 
@@ -153,15 +157,16 @@ for (year in seq(2008, 2016, by=2)){
 # to 2008
 for (year in seq(2014, 2002, by = -2)){
   new_data[[str_c("educ_", year)]] <- ifelse(
-    !is.na(new_data[[str_c("educ_", year)]]), new_data[[str_c("educ_", year)]],
+    !is.na(new_data[[str_c("educ_", year)]]), 
+    new_data[[str_c("educ_", year)]],
     new_data[[str_c("educ_", year + 2)]]
   )
 }
 
 # Mark each person"s msa status, marital status, and weeks worked
 for (year in seq(2002, 2016, by=2)){
-  new_data %<>%
-    rename(
+  new_data <- 
+    rename(new_data,
       !!str_c("msa_", year) := !!str_c(q_msa, year),
       !!str_c("marital_status_", year) := !!str_c(q_mar, year),
       # !!str_c("wks_work_prev_", year) := !!str_c(q_wks, year)
@@ -172,13 +177,13 @@ for (year in seq(2002, 2016, by=2)){
 for (year in seq(2, 16, by=2)){
   l <- "_20"
   year_n <- sprintf("%02d", year)
-  new_data %<>%
-    rename(
-      !!str_c("tot_child", l, year) := !!str_c(q_nkid, year_n, l, year_n),
+  new_data <- 
+    rename(new_data,
+      !!str_c("tot_child", l, year) := 
+        !!str_c(q_nkid, year_n, l, year_n),
       !!str_c("hh_child", l, year) := !!str_c(q_nch, year_n, l, year_n)
     )
 }
-
 
 # Reshape and Clean -------------------------------------------------------
 
@@ -187,25 +192,27 @@ for (year in seq(2, 16, by=2)){
 vary <- c("educ", "msa", "region", "marital_status",
           "tot_child", "hh_child", "wks_work_prev")
 
-constant <- c("case_id", "sample_id", "female", "black", "hispanic", "birth_year")
+constant <- c("case_id", "sample_id", "female", "black",
+              "hispanic", "birth_year")
 
 # Variables we keep
 keep <- str_c("^(", str_c(vary, collapse = "|"), "|",
               str_c(constant, collapse = "|"), ")")
 
 # Transform data from wide to long
-long <- new_data %>% 
-  select(matches(keep)) %>% 
-  gather(matches(str_c("^(", str_c(vary, collapse="|"), ")")), key=key, value=val) %>%
-  extract(key, into=c("variable", "key"), regex="(\\D+)(_20..)") %>%
-  filter(!is.na(variable), !is.na(key)) %>%
-  spread(key=variable, value=val) %>% 
-  rename(int_year = key, region = REGION) %>%
-  mutate(int_year = as.numeric(substring(int_year, 2))) %>%
+long <- new_data |> 
+  select(matches(keep)) |> 
+  gather(matches(str_c("^(", str_c(vary, collapse="|"), ")")), 
+         key=key, value=val) |>
+  extract(key, into=c("variable", "key"), regex="(\\D+)(_20..)") |>
+  filter(!is.na(variable), !is.na(key)) |>
+  spread(key=variable, value=val) |> 
+  rename(int_year = key, region = REGION) |>
+  mutate(int_year = as.numeric(substring(int_year, 2))) |>
   # Keep only observations with at least one job specific bit of data
   filter_at(vars(-case_id:-int_year), any_vars(!is.na(.))) 
 
-long %<>% 
+long <- long |> 
   # Create education buckets and find age each year
   mutate(
     age = int_year - birth_year,
@@ -215,17 +222,20 @@ long %<>%
     ba = 1 * (educ %in% c(3, 4)),
     plus_ba = 1 * ((educ > 4) & (educ < 8)),
     educ_other = 1 * (educ == 8),
-    educ = 1 * less_hs + 2 * hs + 3 * aa + 4 * ba + 5 * plus_ba + 6 * educ_other 
-  ) %>% 
-  # For missing data, fill in with previous answers. If no previous answers, fill
-  # in with next answers
-  group_by(case_id) %>%
-  fill(msa, region, marital_status, tot_child, hh_child, .direction = "downup") %>%  
-  ungroup() %>% 
+    educ = 1 * less_hs + 2 * hs + 3 * aa + 4 * ba 
+    + 5 * plus_ba + 6 * educ_other 
+  ) |> 
+  # For missing data, fill in with previous answers. 
+  # If no previous answers, fill in with next answers
+  group_by(case_id) |>
+  fill(msa, region, marital_status, tot_child, hh_child, 
+       .direction = "downup") |>  
+  ungroup() |> 
   select(-educ)
 
-# # Data from 2014 and 2016 interviews in on jobs are less reliable. Drop these years
-# long %<>% filter(int_year < 2014) 
+# # Data from 2014 and 2016 interviews in on jobs are less reliable.
+# Drop these years
+# long <- filter(long, int_year < 2014) 
 
 # Save the data
 write_csv(long, str_c(clean_folder, "demographics_clean.csv"))

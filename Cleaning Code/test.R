@@ -2,64 +2,25 @@
 
 rm(list = ls())
 
+library(outsourcing)
+library(zeallot)
 library(ipumsr)
-library(magrittr)
 library(data.table)
 library(readxl)
 library(estimatr)
 library(data.table)
 library(openxlsx)
-library(BSDA)
 library(srvyr)
-library(DescTools)
 library(lubridate)
 library(tidyverse)
 
 # Folders of interest
-raw_folder <- "../Raw Data/"
-clean_folder <- "../Cleaned Data/"
-table_folder <- "../Tables/"
-figure_folder <- "../Figures/NLSY 79 Timeline/"
+folders <- name_folders("NLSY 79 Timeline")
+c(raw_folder, clean_folder, table_folder, figure_folder,
+  d_table_folder, s_table_folder) %<-% folders 
 
 # For saving graphs
-aspect_ratio <- 1.62
-height <- 7
-width <- height * aspect_ratio
-
-# Create a function that finds difference of means or proportions and reports
-# * if 10%, ** if 5%, and *** if 1% different
-test <- function(data, var, obs, row_1, row_2, type) {
-  if (type == "mean") {
-    test <- tsum.test(mean.x=data[[var]][row_1],
-                      s.x=data[[str_c(var, "_se")]][row_1] * sqrt(data[[obs]][row_1]),
-                      n.x=data[[obs]][row_1],
-                      mean.y=data[[var]][row_2],
-                      s.y=data[[str_c(var, "_se")]][row_2] * sqrt(data[[obs]][row_2]),
-                      n.y=data[[obs]][row_2])
-  } else if (type == "prop") {
-    # If value is 0, return ""
-    if (data[[var]][row_1] == 0 | data[[var]][row_2] == 0){
-      return("")
-    }
-    test <- prop.test(x = c(data[[var]][row_1] * data[[obs]][row_1], 
-                            data[[var]][row_2] * data[[obs]][row_2]),
-                      n = c(data[[obs]][row_1], data[[obs]][row_2]),
-                      correct = FALSE)
-  } else {
-    return(warning("Not a valid test"))
-  }
-  
-  p <- test$p.value
-  if (p < .01) {
-    stars <- "\\textsuperscript{***}"
-  } else if (p < .05) {
-    stars <- "\\textsuperscript{**}"
-  } else if (p < .1) {
-    stars <- "\\textsuperscript{*}"
-  } else {
-    stars <- ""
-  }
-}
+c(height, width) %<-% fig_size()
 
 # Create a function that finds proportion test and reports
 # * if 10%, ** if 5%, and *** if 1% different
@@ -77,61 +38,6 @@ p_test_1 <- function(data, var, obs, row){
     stars <- ""
   }
   return(stars)
-}
-
-# Create a function that takes regression p-values and reports
-# * if 10%, ** if 5%, and *** if 1% significant
-p_stars <- function(p){
-  if (p < .01){
-    stars <- "\\textsuperscript{***}"
-  } else if (p < .05){
-    stars <- "\\textsuperscript{**}"
-  } else if (p < .1){
-    stars <- "\\textsuperscript{*}"
-  } else{
-    stars <- ""
-  }
-  return(stars)
-}
-
-# Create a function that makes a formula given dependent variable 
-# and list of independent variables
-create_formula <- function(y, x_list) {
-  vars <- x_list %>% 
-    map(str_c, collapse = "+") %>% 
-    str_c(collapse = "+")
-  
-  eq <- formula(str_c(y, vars, sep = "~"))
-}
-
-# Create a function to properly format inputs
-format_it <- function(var, r = 2, s = 2) {
-  format(round(var, r), nsmall = s, scientific = F)
-}
-
-# Create a function to put values in tables
-format_val <- function(var, star = "", r = 2, s = 2) {
-  str_c(" & ", format_it(var, r, s), star, " ")
-}
-
-# Create a function to put standard errors in tables
-format_se <- function(var, r = 2, s = 2) {
-  str_c(" & (", format_it(var, r, s), ") ")
-}
-
-# Create a function to put N obs in tables
-format_n <- function(n) {
-  str_c(" & {", format(n, big.mark = ",", trim = T), "} ")
-}
-
-# Create a function to format percents
-format_per <- function(var, r = 2, s = 2) {
-  str_c(" & ", format(round(var * 100, r), nsmall = s), " ")
-}
-
-# Create a function to sum rows of a variable, droppin NAs
-r_sum <- function(...) {
-  rowSums(cbind(...), na.rm = T)
 }
 
 # Download data and filter out women (only look at men)
@@ -175,13 +81,15 @@ weights <- read_table2(str_c(raw_folder, "customweight.dat"),
   data.table()
 
 timeline <- weights[timeline, on = .(case_id == case_id)]
-timeline <- timeline[, `:=`(age = year(week) - birth_year, birth_year = NULL)]
+timeline <- timeline[, `:=`(age = year(week) - birth_year,
+                            birth_year = NULL)]
 
 rm(demographics, weights)
 
 # Create week_start/end_match to keep original data
 matched %<>% 
-  select(case_id, emp_id, hours_week, occ, ind, tenure, week_start_job, week_end_job,
+  select(case_id, emp_id, hours_week, occ, ind, tenure, 
+         week_start_job, week_end_job,
          log_real_wkly_wage, self_emp:traditional, ho_occ,
          part_time, any_benefits, health, retirement, union) %>%
   mutate(week_start_match = week_start_job,
@@ -189,9 +97,11 @@ matched %<>%
   data.table()
 
 matched_jobs %<>% 
-  select(case_id, emp_id, hours_week, occ, ind, tenure, week_start_job, week_end_job,
-         max_tenure, log_real_wkly_wage, self_emp:traditional,
-         ho_occ, any_benefits, health, retirement, union, part_time) %>%
+  select(case_id, emp_id, hours_week, occ, ind, tenure, 
+         week_start_job, week_end_job, max_tenure, 
+         log_real_wkly_wage, self_emp:traditional,
+         ho_occ, any_benefits, health, retirement, 
+         union, part_time) %>%
   mutate(week_start_match = week_start_job,
          week_end_match = week_end_job) %>% 
   data.table()
@@ -217,17 +127,20 @@ timeline <- matched_jobs[timeline,
 # If emp_id is matched to a week but working is 0, set job characteristics 
 # to NA (esp emp_id and outsourced)
 timeline_1 <- timeline_1[working == 0, 
-                     c("emp_id", "outsourced", "tenure", "log_real_wkly_wage",
-                       "log_real_hrly_wage", "hours_week", "part_time",
+                     c("emp_id", "outsourced", "tenure", 
+                       "log_real_wkly_wage", "log_real_hrly_wage",
+                       "hours_week", "part_time",
                        "week_start_job", "week_end_job", "indep_con",
-                       "self_emp", "temp_work", "on_call", "traditional")
+                       "self_emp", "temp_work", "on_call",
+                       "traditional")
                      := NA]
 
 timeline <- timeline[working == 0, 
-                     c("emp_id", "outsourced", "tenure", "log_real_wkly_wage",
-                       "log_real_hrly_wage", "hours_week", "part_time",
-                       "week_start_job", "week_end_job", "indep_con",
-                       "self_emp", "temp_work", "on_call", "traditional")
+                     c("emp_id", "outsourced", "tenure",
+                       "log_real_wkly_wage", "log_real_hrly_wage",
+                       "hours_week", "part_time", "week_start_job",
+                       "week_end_job", "indep_con", "self_emp", 
+                       "temp_work", "on_call", "traditional")
                      := NA]
 
 # Drop jobs held in same week. Keep jobs by largest/most
@@ -235,10 +148,12 @@ timeline <- timeline[working == 0,
 # 2. hours_week
 # 3. log_real_wkly_wage
 # Be careful not to drop non-workers
-timeline <- timeline[, obs := sum(!is.na(emp_id)), by = .(case_id, week)]
+timeline <- timeline[, obs := sum(!is.na(emp_id)),
+                     by = .(case_id, week)]
 timeline_week_conflict <- timeline[obs > 1]
 
-timeline_1 <- timeline_1[, obs := sum(!is.na(emp_id)), by = .(case_id, week)]
+timeline_1 <- timeline_1[, obs := sum(!is.na(emp_id)),
+                         by = .(case_id, week)]
 timeline_week_conflict_1 <- timeline_1[obs > 1]
 
 vars <- c("hours_week", "tenure", "log_real_wkly_wage", "occ")
@@ -260,58 +175,70 @@ for (var in vars) {
 
 # If any remain, take lowest emp_id (and drop these varaibles)
 timeline_week_conflict <-
-  timeline_week_conflict[, max := min(emp_id, na.rm = T), by = .(case_id, week)]
+  timeline_week_conflict[, max := min(emp_id, na.rm = T),
+                         by = .(case_id, week)]
 timeline_week_conflict <- timeline_week_conflict[(emp_id == max) %in% T]
-timeline_week_conflict <- timeline_week_conflict[,c("max", "non_na") := NULL]
+timeline_week_conflict <- timeline_week_conflict[
+  ,c("max", "non_na") := NULL]
 
 timeline_week_conflict_1 <-
-  timeline_week_conflict_1[, max := min(emp_id, na.rm = T), by = .(case_id, week)]
-timeline_week_conflict_1 <- timeline_week_conflict_1[(emp_id == max) %in% T]
-timeline_week_conflict_1 <- timeline_week_conflict_1[,c("max", "non_na") := NULL]
+  timeline_week_conflict_1[, max := min(emp_id, na.rm = T),
+                           by = .(case_id, week)]
+timeline_week_conflict_1 <- timeline_week_conflict_1[
+  (emp_id == max) %in% T]
+timeline_week_conflict_1 <- timeline_week_conflict_1[
+  ,c("max", "non_na") := NULL]
 
 # Merge back into
 timeline <- bind_rows(timeline[obs <= 1], timeline_week_conflict)
 timeline_1 <- bind_rows(timeline_1[obs <= 1], timeline_week_conflict_1)
 
-diff <- anti_join(timeline, timeline_1, by = c("case_id", "emp_id", "week", "occ"))
-diff_1 <- anti_join(timeline_1, timeline, by = c("case_id", "emp_id", "week", "occ"))
+diff <- anti_join(timeline, timeline_1, 
+                  by = c("case_id", "emp_id", "week", "occ"))
+diff_1 <- anti_join(timeline_1, timeline, 
+                    by = c("case_id", "emp_id", "week", "occ"))
 
-# timeline <- anti_join(timeline, diff, by = c("case_id", "emp_id", "week"))
-# timeline_1 <- anti_join(timeline_1, diff_1, by = c("case_id", "emp_id", "week"))
+# timeline <- anti_join(timeline, diff, 
+#                       by = c("case_id", "emp_id", "week"))
+# timeline_1 <- anti_join(timeline_1, diff_1,
+#                         by = c("case_id", "emp_id", "week"))
 
-# timeline_1 <- semi_join(timeline_1, timeline, by = c("case_id", "emp_id", "week", "occ", "outsourced"))
-# timeline <- semi_join(timeline, timeline_1, by = c("case_id", "emp_id", "week", "occ", "outsourced"))
+# timeline_1 <- semi_join(timeline_1, timeline, 
+#                         by = c("case_id", "emp_id", "week", "occ", "outsourced"))
+# timeline <- semi_join(timeline, timeline_1, 
+#                       by = c("case_id", "emp_id", "week", "occ", "outsourced"))
 
-# temp <- timeline %>% 
-#   filter(!is.na(outsourced), !is.na(week)) %>% 
-#   as_survey_design(ids = case_id, weights=weight) %>% 
-#   group_by(week) %>% 
-#   summarise(outsourced_per = survey_mean(outsourced * 100, vartype = "ci")) %>% 
+# temp <- timeline %>%
+#   filter(!is.na(outsourced), !is.na(week)) %>%
+#   as_survey_design(ids = case_id, weights=weight) %>%
+#   group_by(week) %>%
+#   summarise(outsourced_per = 
+#               survey_mean(outsourced * 100, vartype = "ci")) %>%
 #   ggplot() +
 #   geom_line(aes(x = week, y = outsourced_per), color = "red",
 #             n = 4) +
 #   geom_line(aes(x = week, y = outsourced_per_upp),
 #             linetype="dashed", color = "red", n = 4) +
-#   geom_line(aes(x = week, y = outsourced_per_low), 
+#   geom_line(aes(x = week, y = outsourced_per_low),
 #             linetype="dashed", color = "red", n = 4) +
 #   labs(x = "Week", y = "Percent Outsourced") +
-#   theme_light(base_size = 16) 
+#   theme_light(base_size = 16)
 # 
-# temp_1 <- timeline_1 %>% 
-#   filter(!is.na(outsourced), !is.na(week)) %>% 
-#   as_survey_design(ids = case_id, weights=weight) %>% 
-#   group_by(week) %>% 
-#   summarise(outsourced_per = survey_mean(outsourced * 100, vartype = "ci")) %>% 
+# temp_1 <- timeline_1 %>%
+#   filter(!is.na(outsourced), !is.na(week)) %>%
+#   as_survey_design(ids = case_id, weights=weight) %>%
+#   group_by(week) %>%
+#   summarise(outsourced_per = survey_mean(outsourced * 100, 
+#                                          vartype = "ci")) %>%
 #   ggplot() +
 #   geom_line(aes(x = week, y = outsourced_per), color = "red",
 #             n = 4) +
 #   geom_line(aes(x = week, y = outsourced_per_upp),
 #             linetype="dashed", color = "red", n = 4) +
-#   geom_line(aes(x = week, y = outsourced_per_low), 
+#   geom_line(aes(x = week, y = outsourced_per_low),
 #             linetype="dashed", color = "red", n = 4) +
 #   labs(x = "Week", y = "Percent Outsourced") +
-#   theme_light(base_size = 16) 
-  
+#   theme_light(base_size = 16)
 
 # Try similar analysis, but aggregate to year level first. 
 # Maybe will be easier to see changes in wages

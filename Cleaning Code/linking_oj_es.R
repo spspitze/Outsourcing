@@ -4,19 +4,17 @@
 # It cleans it then saves it as linking_clean
 rm(list = ls())
 
-library(magrittr)
+library(outsourcing)
+library(zeallot)
 library(lubridate)
-library(multiplex)
 library(tidyverse)
 
 # Folders of interest
-raw_folder <- "../Raw Data/"
-clean_folder <- "../Cleaned Data/"
+folders <- name_folders()
+c(raw_folder, clean_folder, table_folder, figure_folder,
+  d_table_folder, s_table_folder) %<-% folders 
 
-new_data <- read_table2(str_c(raw_folder, "linking_raw.dat"),  
-                        col_types = cols(.default = col_double()))
-
-names(new_data) <- c(
+col_names <- c(
   "CASEID_1979",
   "NEWLINK.01_2002",
   "NEWLINK.02_2002",
@@ -186,6 +184,10 @@ names(new_data) <- c(
   "EMPLINK.07_2016",
   "EMPLINK.08_2016")
 
+new_data <- read_table2(str_c(raw_folder, "linking_raw.dat"), 
+                        col_names = col_names,
+                        col_types = cols(.default = col_double()))
+
 # Handle missing values
 
 new_data[new_data == -1] = NA  # Refused 
@@ -194,19 +196,13 @@ new_data[new_data == -3] = NA  # Invalid missing
 new_data[new_data == -4] = NA  # Valid missing 
 new_data[new_data == -5] = NA  # Non-interview 
 
-# Create a function that, given a variable name and data set, returns T
-# if variable is in names, F else
-check <- function(var, data){
-  var %in% colnames(data)
-}
-
 # Reshape and Clean -------------------------------------------------------
 
 # Each variable is On Jobs type
 # (DLI, PDLI, NEW for 2002-2012, EMP for 2014-2016) 
 # + "LINK."
-# + Employer supplement job number (1-14, although only have data on 1st 5)
-# + "_" + year
+# + Employer supplement job number (1-14, although only have data
+# on 1st 5) + "_" + year
 # The data entry is the number of the job type in on jobs 
 # (or -4 if not applicable)
 # Goal is to create a data set linking es_job number 
@@ -227,29 +223,34 @@ constant <- "case_id"
 keep <- str_c("^(", str_c(vary, collapse = "|"), "|", constant, ")")
 
 # Transform data from wide to long
-long <- new_data %>% 
-  dplyr::select(matches(keep)) %>% 
-  gather(matches(str_c("^(", str_c(vary, collapse="|"), ")")), key=key, value=val) %>%
-  extract(key, into=c("variable", "key"), regex="(.+)(.[01]?._20..)$") %>%
-  filter(!is.na(variable), !is.na(key)) %>%
-  spread(key=variable, value=val) %>%
-  mutate(key = substring(key, 2)) %>%
-  separate(key, sep="_", into=c("es_job", "int_year"), convert = T) %>% 
-  rename(dli = DLILINK., pli = PDLILINK., nj = NEWLINK., emp = EMPLINK.) %>% 
+long <- new_data |> 
+  dplyr::select(matches(keep)) |> 
+  gather(matches(str_c("^(", str_c(vary, collapse="|"), ")")),
+         key=key, value=val) |>
+  extract(key, into=c("variable", "key"), 
+          regex="(.+)(.[01]?._20..)$") |>
+  filter(!is.na(variable), !is.na(key)) |>
+  spread(key=variable, value=val) |>
+  mutate(key = substring(key, 2)) |>
+  separate(key, sep="_", into=c("es_job", "int_year"),
+           convert = T) |> 
+  rename(dli = DLILINK., pli = PDLILINK., nj = NEWLINK.,
+         emp = EMPLINK.) |> 
   # Keep only observations with at least one job specific bit of data
   filter_at(vars(-case_id, -es_job, -int_year), any_vars(!is.na(.))) 
 
-# Contruct oj_job based on which job is present. Drop intermediate steps
-long %<>%
+# Construct oj_job based on which job is present. Drop intermediate 
+# variables
+long <- long |>
   # Only es_jobs from 1-5 have data
-  filter(es_job >= 1 & es_job <= 5) %>% 
+  filter(es_job >= 1 & es_job <= 5) |> 
   mutate(
     oj_job = case_when(
       !is.na(dli) ~ dli,
       !is.na(emp) ~ emp,
       !is.na(pli) ~ 5 + pli,
       !is.na(nj) ~ 10 + nj
-    )) %>% 
+    )) |> 
   select(-dli:-pli)
 
 # Save the data

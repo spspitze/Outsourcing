@@ -2,19 +2,17 @@
 # It cleans it then saves it as on_jobs_clean
 rm(list = ls())
 
-library(magrittr)
+library(outsourcing)
+library(zeallot)
 library(lubridate)
-library(multiplex)
 library(tidyverse)
 
 # Folders of interest
-raw_folder <- "../Raw Data/"
-clean_folder <- "../Cleaned Data/"
+folders <- name_folders()
+c(raw_folder, clean_folder, table_folder, figure_folder,
+  d_table_folder, s_table_folder) %<-% folders 
 
-new_data <- read_table2(str_c(raw_folder, "on_jobs_raw.dat"),  
-                        col_types = cols(.default = col_double()))
-
-names(new_data) <- c(
+col_names <- c(
   "CASEID_1979",
   "Q6-8F.01.01_2002",
   "Q6-8F.02.01_2002",
@@ -1012,11 +1010,12 @@ names(new_data) <- c(
   "Q6-27I.04_2012",
   "Q6-27I.05_2012")
 
+new_data <- read_table2(str_c(raw_folder, "on_jobs_raw.dat"), 
+                        col_names = col_names,
+                        col_types = cols(.default = col_double()))
 
 # This is data downloaded from errata
-new_data_2 <- read_table2(str_c(raw_folder, "errata.dat"),  
-                          col_types = cols(.default = col_double()))
-names(new_data_2) <- c(
+col_names_2 <- c(
   "CASEID_1979",
   "Q6-8E_1A.01.01_2002",
   "Q6-8E_1A.01.02_2002",
@@ -1086,12 +1085,14 @@ names(new_data_2) <- c(
   "NEWEMP_CURFLAG.08_2012"
 )
 
-# Many jobs are being droped in 2014-2016 because too much missing data,
+new_data_2 <- read_table2(str_c(raw_folder, "errata.dat"),  
+                          col_names = col_names_2,
+                          col_types = cols(.default = col_double()))
+
+# Many jobs are being dropped in 2014-2016 because too much missing data,
 # but it looks like these jobs should exist. These variables from looped
 # should help determine if a job exists
-new_data_3 <- read_table2(str_c(raw_folder, "looped.dat"),  
-                          col_types = cols(.default = col_double()))
-names(new_data_3) <- c(
+col_names_3 <- c(
   "CASEID_1979",
   "Q6-8_JOBVER_1A.01_2014",
   "Q6-8_JOBVER_1A.02_2014",
@@ -1113,6 +1114,10 @@ names(new_data_3) <- c(
   "Q6-8_JOBVER_1C.02_2016",
   "Q6-8_JOBVER_1C.03_2016"
 )
+
+new_data_3 <- read_table2(str_c(raw_folder, "looped.dat"), 
+                          col_names = col_names_3,
+                          col_types = cols(.default = col_double()))
 
 # Handle missing values
 
@@ -1138,12 +1143,6 @@ new_data_3[new_data_3 == -5] = NA  # Non-interview
 new_data <- inner_join(new_data, new_data_2, by="CASEID_1979")
 new_data <- inner_join(new_data, new_data_3, by="CASEID_1979")
 
-# Create a function that, given a variable name and data set, returns T
-# if variable is in names, F else
-check <- function(var, data){
-  var %in% colnames(data)
-}
-
 # Create a function that renames date variables.
 # It takes an old variable name, job number, year, and job type and 
 # returns a new name
@@ -1154,8 +1153,8 @@ rename_oj <-
     var <- str_c(old_name, job_n, fill, "_", year)
     num <- sprintf("%02d", job_n + add)
     new_var <- str_c(new_name, num, year, sep = "_")
-    if (check(var, data)) {
-      data %<>% rename(!!new_var := !!var)
+    if (check_exists(var, data)) {
+      data <- rename(data, !!new_var := !!var)
     } else {
       data
     }
@@ -1218,8 +1217,9 @@ ym <- c(y, m)
 # rename CASEID_1979 to case_id
 new_data <- rename(new_data, case_id = CASEID_1979)
 
-# Clean and relabel all data below. To make things a bit easier later on,
-# will only look at first 5 jobs within each category of d/p/n
+# Clean and relabel all data below. To make things a bit easier
+# later on, will only look at first 5 jobs within each 
+# category of d/p/n
 # Will also change job numbers:
 # d jobs will keep their number
 # p jobs will be number + 5
@@ -1251,13 +1251,13 @@ for (job_n in 1:5) {
           type <- type_list[type_n]
           date <- ym[date_n]
           new_name <- str_c(q_date_new[var_n], ym_new[date_n])
-          new_data %<>% 
-            rename_oj(old_name, job_n, year, type, new_name,
-                        fill = date)
+          new_data <- 
+            rename_oj(new_data, old_name, job_n, year, type,
+                      new_name, fill = date)
         }
       }
       
-      # Rename type varaibles
+      # Rename type variables
       for (round_n in 1:2) {
         for (var_n in seq_along(q_type_new)) {
           AB <- ""
@@ -1272,19 +1272,19 @@ for (job_n in 1:5) {
           type <- type_list[type_n]
           new_name <- str_c(q_type_new[var_n], "_", round_n)
           f <- str_c(".0", round_n)
-          new_data %<>% 
-            rename_oj(old_name, job_n, year, type, new_name,
-                        fill = f)
+          new_data <-
+            rename_oj(new_data, old_name, job_n, year, type,
+                      new_name, fill = f)
         }
       }
       
-      # Rename miscelaneous varaibles
+      # Rename miscellaneous variables
       for (var_n in seq_along(q_misc_new)) {
         old_name <- q_misc[[var_n]][type_n]
         type <- type_list[type_n]
-        new_data %<>% 
-          rename_oj(old_name, job_n, year, type, q_misc_new[var_n],
-                      fill = misc_fill[var_n])
+        new_data <- 
+          rename_oj(new_data, old_name, job_n, year, type,
+                    q_misc_new[var_n], fill = misc_fill[var_n])
       }
       
       # Report job worked most each year 
@@ -1293,7 +1293,7 @@ for (job_n in 1:5) {
       num <- sprintf("%02d", job_n + add)
       old_var <- str_c(q_most, year)
       new_var <- str_c("most_job_", num, "_", year)
-      new_data %<>% mutate(!!new_var := .[[old_var]])
+      new_data <- mutate(new_data, !!new_var := new_data[[old_var]])
     }
   }
   
@@ -1303,18 +1303,18 @@ for (job_n in 1:5) {
   for (date_n in 1:2) {
     date <- ym[date_n]
     new_name <- str_c("month_start_job", ym_new[date_n])
-    new_data %<>% 
-      rename_oj("Q6-15.0", job_n, 2002, "p", new_name, 
-                  fill = date)
+    new_data <- 
+      rename_oj(new_data, "Q6-15.0", job_n, 2002, "p", 
+                new_name, fill = date)
   }
   
   # 2012: month_start_job n had a different name
   for (date_n in 1:2) {
     date <- ym[date_n]
     new_name <- str_c("month_start_job", ym_new[date_n])
-    new_data %<>% 
-      rename_oj("NEWEMP_STARTDATE.0", job_n, 2012, "n", new_name,
-                  fill = date)
+    new_data <-
+      rename_oj(new_data, "NEWEMP_STARTDATE.0", job_n, 2012,
+                "n", new_name, fill = date)
   }
   
   # 2014-2016: lots of missing data leads to too many drops. 
@@ -1325,22 +1325,25 @@ for (job_n in 1:5) {
     for (temp_n in 1:3) {
       old_name <- str_c(q_temp, temp_end[temp_n], ".0")
       new_name <- str_c("temp_", temp_end[temp_n])
-      new_data %<>% 
-        rename_oj(old_name, job_n, year, "d", new_name, fill = "")
+      new_data <-
+        rename_oj(new_data, old_name, job_n, year, "d",
+                  new_name, fill = "")
     }
   }
   
   # 2016: current_job d had a different name
-  new_data %<>% 
-    rename_oj("Q6-8.0", job_n, 2016, "d", "current_job", fill = "")
+  new_data <- 
+    rename_oj(new_data, "Q6-8.0", job_n, 2016, "d",
+              "current_job", fill = "")
 }
 
 
 # Reshape and Clean -------------------------------------------------------
 
 # Create list of variables to loop over jobs
-vary <- c("month_start_job", "month_end_job", "current_job", "most_job", "looped", 
-          "pre_trad", "self_emp", "indep_con", "temp_work", "on_call", "outsourced",
+vary <- c("month_start_job", "month_end_job", "current_job",
+          "most_job", "looped", "pre_trad", "self_emp", "indep_con",
+          "temp_work", "on_call", "outsourced",
           "temp_A", "temp_B", "temp_C")
 
 constant <- "case_id"
@@ -1349,17 +1352,20 @@ constant <- "case_id"
 keep <- str_c("^(", str_c(vary, collapse = "|"), "|", constant, ")")
 
 # Transform data from wide to long
-long <- new_data %>% 
-  dplyr::select(matches(keep)) %>% 
-  gather(matches(str_c("^(", str_c(vary, collapse="|"), ")")), key=key, value=val) %>%
-  extract(key, into=c("variable", "key"), regex="(.+)(_[01]?._20..)$") %>%
-  filter(!is.na(variable), !is.na(key)) %>%
-  spread(key=variable, value=val) %>%
-  mutate(key = substring(key, 2)) %>%
-  separate(key, sep="_", into=c("job", "int_year"), convert = T) %>% 
+long <- new_data |> 
+  dplyr::select(matches(keep)) |> 
+  gather(matches(str_c("^(", str_c(vary, collapse="|"), ")")),
+         key=key, value=val) |>
+  extract(key, into=c("variable", "key"), 
+          regex="(.+)(_[01]?._20..)$") |>
+  filter(!is.na(variable), !is.na(key)) |>
+  spread(key=variable, value=val) |>
+  mutate(key = substring(key, 2)) |>
+  separate(key, sep="_", into=c("job", "int_year"), convert = TRUE) |> 
   # Keep only observations with at least one job specific bit of data
-  filter_at(vars(-case_id, -job, -int_year, -most_job), any_vars(!is.na(.))) %>% 
-  select(-temp_A, -temp_B, -temp_C)
+  filter_at(vars(-case_id, -job, -int_year, -most_job), 
+            any_vars(!is.na(.))) |> 
+  dplyr::select(-temp_A, -temp_B, -temp_C)
 
 # Fill in missing job type data
 # 1. For job types, 1 vs 2 are first and second time though the loop.
@@ -1371,23 +1377,24 @@ find_type <- function(data, var) {
 }
 
 # Self-emp has no 2, so remove it from the list and rename it self_emp
-long %<>% rename(self_emp = self_emp_1)
+long <- rename(long, self_emp = self_emp_1)
 
 for (var in q_type_new[-1]) {
   long[[var]] <- find_type(long, var)
 }
 
-# 2. Default job type is traditional. Set as traditional if pre_trad == 1
-# or if no other job type == 1 and job went through loop
+# 2. Default job type is traditional. Set as traditional 
+# if pre_trad == 1 or if no other job type == 1 and 
+# job went through loop.
 # Appears looped job 5 2014 is missing. Set == 1 if !is.na(self_emp) 
-long %<>% 
-  select(-ends_with("1"), -ends_with("2")) %>% 
+long <- long |>
+  select(-ends_with("1"), -ends_with("2")) |> 
   mutate(
     looped = ifelse(is.na(looped) & !is.na(self_emp), 1, looped),
     traditional = 
-      ifelse(
-        pre_trad %in% 1, 1,
-        looped - pmax(self_emp, temp_work, on_call, outsourced, na.rm = T)
+      ifelse(pre_trad %in% 1, 1,
+        looped - pmax.int(self_emp, temp_work, on_call, outsourced,
+                      na.rm = T)
         ),
     # If NA for all job types, assume traditional
     traditional = ifelse(is.na(traditional), looped, traditional),
@@ -1396,7 +1403,8 @@ long %<>%
     )
 
 
-# 3. If answered a job type question positively, assume all other types are 0
+# 3. If answered a job type question positively, assume all other
+# types are 0
 # If report multiple job types, prioritize indep_con, then
 # outsourced, then temp, then self_emp, then on_call, then traditional
 # If person ever outsourced, set ever_out_oj == 1
@@ -1421,47 +1429,53 @@ avoid_doubles <- function(data, vec) {
 type_vec <- c("indep_con", "outsourced", "temp_work", "self_emp", 
                "on_call",  "traditional")
 
-long %<>%  
+long <- long |> 
   mutate(
     looped = ifelse(
       !is.na(looped), looped,
       pmax(traditional, self_emp, indep_con,
            temp_work, on_call, outsourced, na.rm = T))
-    ) %>% 
-  mutate_at(type_vec, not_type, comp = .$looped) %>%
-  avoid_doubles(type_vec) %>% 
-  # Check to make sure avoid_doubles works
+    ) |> 
+  mutate_at(type_vec, not_type, comp = long$looped) |>
+  avoid_doubles(type_vec) |> 
+  # check_exists to make sure avoid_doubles works
   mutate(
     num_types = rowSums(cbind(traditional, self_emp, indep_con,
-                             temp_work, on_call, outsourced), na.rm = T)
-    ) %>% 
-  group_by(case_id) %>% 
+                              temp_work, on_call, outsourced),
+                        na.rm = T)
+    ) |> 
+  group_by(case_id) |> 
   mutate(
-    ever_out_oj = ifelse(all(is.na(outsourced)), 0, max(outsourced, na.rm = T))
-    ) %>% 
+    ever_out_oj = ifelse(all(is.na(outsourced)), 0, 
+                         max(outsourced, na.rm = T))
+    ) |> 
   ungroup()
 
 # 4. Turn month start/end job into dates using lubridate
 # Set dates before 1979 as NA
-long %<>% 
+long <- long |>
   mutate(
-    month_start_job = ymd(str_c(month_start_job_y, month_start_job_m, 1, sep="-")),
-    month_end_job = ymd(str_c(month_end_job_y, month_end_job_m, 1, sep="-")),
-    month_start_job = as_date(ifelse(month_start_job < ymd("1970-01-01"), NA,
-                                     month_start_job)),
-    month_end_job = as_date(ifelse(month_end_job < ymd("1970-01-01"), NA,
-                                   month_end_job))
-    ) %>% 
+    month_start_job = ymd(str_c(month_start_job_y, 
+                                month_start_job_m, 1, sep="-")),
+    month_end_job = ymd(str_c(month_end_job_y, 
+                              month_end_job_m, 1, sep="-")),
+    month_start_job = as_date(ifelse(
+      month_start_job < ymd("1970-01-01"), NA,
+      month_start_job)),
+    month_end_job = as_date(ifelse(month_end_job < ymd("1970-01-01"),
+                                   NA, month_end_job))
+    ) |> 
   select(-ends_with("_m"), -ends_with("_y"))
 
 
-# 5. Want to rank jobs by date last worked, with current jobs ranked first
+# 5. Want to rank jobs by date last worked, with current jobs ranked
+# first
 # To do this
 # 1. Group by case_id and year
-# (If !is.na(month_end_job) and is.na(current_job), set current_job == 0; 
-# Also add up all current jobs)
-# 2. Create rank_date = large number if current_job = 1, month_end_job else 
-# (including if current_job NA)
+# (If !is.na(month_end_job) and is.na(current_job), set 
+# current_job == 0; also add up all current jobs)
+# 2. Create rank_date = large number if current_job = 1, 
+# month_end_job else (including if current_job NA)
 # 3. Create rank using min_rank descending on rank_date
 # 4. Group jobs with same rank together. Generate row_number. 
 # For current jobs
@@ -1471,32 +1485,37 @@ long %<>%
 # Otherwise if row_number > 1, rank = rank + row_number - 1
 # If most_job > tot_current, then subtract 1 from rank of current 
 # Lastly, drop all unneeded variables
-long %<>% 
-  group_by(case_id, int_year) %>% 
+long <- long |>
+  group_by(case_id, int_year) |> 
   mutate(
-    current_job = ifelse(is.na(current_job) & !is.na(month_end_job), 0, current_job),
+    current_job = ifelse(is.na(current_job) & !is.na(month_end_job),
+                         0, current_job),
     tot_current = sum(current_job, na.rm = T),
     rank_date = ifelse(
-      is.na(current_job), month_end_job, ifelse(current_job == 1, 1e6, month_end_job)),
+      is.na(current_job), month_end_job, ifelse(current_job == 1,
+                                                1e6, month_end_job)),
     rank_date = ifelse(is.na(rank_date), 0, rank_date),
     rank = min_rank(desc(rank_date))
-  ) %>% 
-  group_by(rank, add = T) %>% 
-  arrange(case_id, int_year, job) %>% 
-  mutate(row_num = row_number(rank)) %>% 
-  ungroup() %>% 
+  ) |> 
+  group_by(rank, .add = T) |> 
+  arrange(case_id, int_year, job) |> 
+  mutate(row_num = row_number(rank)) |> 
+  ungroup() |> 
   mutate(
     rank = ifelse(
       (current_job == 1 & !is.na(most_job)) %in% T,
       ifelse(most_job == row_num, 1,
-             ifelse(most_job > row_num & most_job <= tot_current, row_num + 1, row_num)),
+             ifelse(most_job > row_num & most_job <= tot_current,
+                    row_num + 1, row_num)),
       ifelse(row_num > 1, rank + row_num - 1, rank)
     )
-  ) %>% 
-  select(-most_job, -num_types, -current_job, -tot_current, -rank_date, -row_num)
+  ) |> 
+  select(-most_job, -num_types, -current_job, -tot_current,
+         -rank_date, -row_num)
 
-# # Data from 2014 and 2016 interviews in on jobs are less reliable. Drop these years
-# long %<>% filter(int_year < 2014) 
+# # Data from 2014 and 2016 interviews in on jobs are less reliable.
+# Drop these years
+# long <- filter(long, int_year < 2014) 
 
 # Save the data
 write_csv(long, str_c(clean_folder, "on_jobs_clean.csv"))
