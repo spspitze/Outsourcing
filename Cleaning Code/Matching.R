@@ -33,6 +33,9 @@ c(raw_folder, clean_folder, table_folder, figure_folder,
 # For saving graphs
 c(height, width) %<-% fig_size()
 
+# Bottom of slide tables never changes, so make it once
+s_bot <- make_bot(slide = TRUE)
+
 # This is data from the Employer History Roster
 hist_rost <- read_csv(str_c(clean_folder, "emp_hist_rost_clean.csv"),
                       col_types = cols(
@@ -85,10 +88,10 @@ linking <- read_csv(str_c(clean_folder, "linking_clean.csv"),
 
 # Join Employer Histoy Roster, Employer Supplement, Demographics,
 # and weights
-# For hist_rost and emp_sup, use outer join because both are measures 
-# of total number of jobs. 
+# For hist_rost and emp_sup, use inner join because both
+# have critical information
 # For the others, use left_join to match data to jobs
-ehr_es <- full_join(hist_rost, emp_sup, 
+ehr_es <- inner_join(hist_rost, emp_sup, 
                     by = c("case_id", "emp_id", "int_year"))
 
 ehr_es <- left_join(ehr_es, demographics, by = c("case_id", "int_year"))
@@ -138,7 +141,7 @@ matched <- matched |>
                         max(tenure, na.rm = T), 0)
   ) |> 
   # Make sure there are unique case_id, int_year, emp_id matches
-  group_by(int_year, add = T) |>
+  group_by(int_year, .add = T) |>
   mutate(count = n()) |> 
   ungroup() |> 
   # Create pbs to measure if industry is in professional 
@@ -162,22 +165,7 @@ on_jobs <- left_join(on_jobs, dem_gender, by = "case_id")
 
 # Total jobs in each survey
 ehr_es_obs <- NROW(ehr_es[ehr_es$female == 0,])
-ehr_obs <- NROW(hist_rost[hist_rost$female == 0,])
-es_obs <- NROW(emp_sup[emp_sup$female == 0,])
 oj_obs <- NROW(on_jobs[on_jobs$female == 0,])
-
-# What is overlap/exclusion between hist_rost and emp_sup
-only_ehr_obs <- hist_rost |> 
-  anti_join(emp_sup, by = c("case_id", "int_year", "emp_id")) |> 
-  filter(female == 0) |> 
-  NROW()
-
-only_es_obs <- emp_sup |> 
-  anti_join(hist_rost, by = c("case_id", "int_year", "emp_id")) |> 
-  filter(female == 0) |> 
-  NROW()
-
-both_es_ehr_obs <- ehr_es_obs - only_ehr_obs - only_es_obs
 
 # Jobs in ehr/es not matched with oj
 unmatched_obs <- ehr_es_obs - NROW(matched[matched$female == 0,])
@@ -232,22 +220,17 @@ oj_outsourced_missed <-
 # Create Tables
 
 # First, numbers being creating matched
-obs <- c(both_es_ehr_obs, only_ehr_obs, only_es_obs, ehr_es_obs,
-         unmatched_obs, flag_1_obs, flag_2_obs, m_obs)
+obs <- c(ehr_es_obs, unmatched_obs, flag_1_obs, flag_2_obs, m_obs)
 
-labels <- c("In Employer History Roster and Employer Supplement",
-            "Only in Employer History Roster",
-            "Only in Employer Supplement",
-            "Starting Data Set",
+labels <- c("Starting Data Set",
             "Unmatched with On Jobs",
             "Conflicting Start or Stop Dates",
             "Missing/Conflicting Job Types",
             "Matched Data Set")
 
-p_m <- c("", "+", "+", "", "-", "-", "-", "")
+p_m <- c("", "-", "-", "-", "")
 
-end <- c("\n", "\n", "\\midrule \n", "\\midrule \n", "\n",
-         "\n", "\\midrule \n", "\n")
+end <- c("\n", "\n", "\n", "\\midrule \n", "\n")
 
 table <- "\\begin{tabular}{lr}
 \\toprule
@@ -271,7 +254,6 @@ d_header <- make_header("d", name, label)
 s_header <- make_header("s")
 
 bot <- make_bot(note)
-s_bot <- make_bot(slide = TRUE)
 
 write.table(str_c(header, table, bot, "\n \\end{document}"),
             str_c(table_folder, "NLSY79 Match Quality/Match Steps.tex"),
@@ -309,7 +291,8 @@ table <- str_c(
   str_c("On Jobs Outsourced",
         format_n(oj_outsourced_missed),
         format_n(oj_outsourced),
-        format_val(oj_outsourced_missed / oj_outsourced * 100, r = 2, s= 2)),
+        format_val(oj_outsourced_missed / oj_outsourced * 100, 
+                   r = 2, s= 2)),
   " \\\\ \n"
 )
 
@@ -326,7 +309,6 @@ d_header <- make_header("d", name, label)
 s_header <- make_header("s")
 
 bot <- make_bot(note)
-s_bot <- make_bot(slide = TRUE)
 
 write.table(str_c(header, table, bot),
             str_c(table_folder, 
@@ -350,10 +332,10 @@ matched <- matched |>
 
 # Variables to use mean, mode, max, and min 
 mean_vars <- c("hours_week", "tenure", "union", "log_real_hrly_wage",
-               "log_real_wkly_wage", "part_time", "childcare", "dental",
-               "flex_sched", "health", "job_sat", "life", 
-               "maternity", "profit_share", "retirement", "train_school",
-               "any_benefits", "sample_id", "female",
+               "log_real_wkly_wage", "part_time", "childcare", 
+               "dental", "flex_sched", "health", "job_sat", "life", 
+               "maternity", "profit_share", "retirement", 
+               "train_school", "any_benefits", "sample_id", "female",
                "black", "hispanic", "hh_child", "tot_child", 
                "less_hs", "hs", "aa", "ba", "plus_ba", "educ_other",
                "age", "weight", "self_emp", "indep_con", "on_call",
@@ -397,9 +379,9 @@ matched_jobs <- list(.vars = lst(mean_vars, mode_vars,
 # Remove unneeded data sets to free up memory
 rm("on_jobs", "ehr_es", "emp_sup", "hist_rost", "linking",
    "dem_gender", "oj_info", "oj_info_missed", "oj_missed",
-   "ever_out_count", "oj_obs", "obs", "match_base", "labels",
-   "end", "fill_mean", "bot_oj", "bot_q", "mean_vars", 
-   "mode_vars", "max_vars", "min_vars")
+   "on_jobs_miss", "ever_out_count", "oj_obs", "obs",
+   "labels", "end", "fill_mean", "mean_vars", "mode_vars",
+   "max_vars", "min_vars")
 
 # Merge Timeline With Job Info --------------------------------------------
 
@@ -476,7 +458,7 @@ timeline <- temp_match[timeline,
                       allow.cartesian = T]
 
 rm(temp_match, temp_match_r, weights_t, demographics, 
-   demographics_merge)
+   demographics_merge, weights)
 
 # If emp_id is matched to a week but working is 0, set 
 # job characteristics to NA (esp emp_id and outsourced)
@@ -679,6 +661,9 @@ timeline <- timeline[week <= week_max]
 
 timeline_r <- timeline_r[week <= week_max]
 
+# Free up space
+rm(temp)
+
 # Observations ------------------------------------------------------------
 
 # How many observations? Number of workers, worker-jobs,
@@ -813,6 +798,9 @@ l <- list(
                    outsourced_per, description))
 
 write.xlsx(l, file=str_c(table_folder, "ind_occ.xlsx"))
+
+# Clear some space
+rm(outsouring_ind, ind_names, l, weights)
 
 # Also make a table with relevant info 
 # (outsourced %, number of occupations, etc)
