@@ -370,7 +370,7 @@ for (ho in 1:2) {
   
   header <- make_header("", name, label)
   d_header <- make_header("d", name, label)
-  s_header <- make_header("s")
+  s_header <- make_header("s", size="\\footnotesize")
   
   bot <- make_bot(note)
   
@@ -903,7 +903,8 @@ for (ind in seq_along(vars_reg)) {
         # Previous
         geom_text(aes(x = FALSE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==F & temp_summary[[ho]]$trans_type == "trad_out"],
-                      label = "Traditional", hjust = "outward"), 
+                      label = "Traditional", hjust = "outward", 
+                      nudge_y = -.0007), 
                   size = 4, color = "dark green") +
         geom_text(aes(x = FALSE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==F & temp_summary[[ho]]$trans_type == "trad_trad"],
@@ -915,13 +916,14 @@ for (ind in seq_along(vars_reg)) {
                   size = 4, color = "red") +
         geom_text(aes(x = FALSE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==F & temp_summary[[ho]]$trans_type == "out_trad"],
-                      label = "Outsourced", hjust = "outward"),
+                      label = "Outsourced", hjust = "outward", 
+                      nudge_y = .0007),
                   size = 4, color = "orange") +
         # Current
         geom_text(aes(x = TRUE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$trans_type == "trad_out"],
                       label = "Outsourced", hjust = "outward"), 
-                  size = 4, color = "dark green", nudge_y = .0015) +
+                  size = 4, color = "dark green") +
         geom_text(aes(x = TRUE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$trans_type == "trad_trad"],
                       label = "Traditional", hjust = "outward"), 
@@ -929,7 +931,7 @@ for (ind in seq_along(vars_reg)) {
         geom_text(aes(x = TRUE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$trans_type == "out_out"],
                       label = "Outsourced", hjust = "outward"),
-                  size = 4, color = "red", nudge_y = -.0015) +
+                  size = 4, color = "red") +
         geom_text(aes(x = TRUE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$trans_type == "out_trad"],
                       label = "Traditional", hjust = "outward"),

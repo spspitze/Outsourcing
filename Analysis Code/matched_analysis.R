@@ -5,11 +5,11 @@ rm(list = ls())
 
 library(outsourcing)
 library(zeallot)
+library(weights)
 library(DescTools)
 library(dineq)
 library(estimatr)
 library(data.table)
-library(openxlsx)
 library(srvyr)
 library(tidyverse)
 
@@ -1509,6 +1509,20 @@ top <- "\\begin{tabular}{lSSS}
 
 name_r <- "Quality of Outsourced Jobs, Comparison Robustness"
 
+# Controls in full regression
+types <- c("outsourced", "self_emp", "indep_con", "temp_work", 
+           "on_call")
+
+controls <- c("age", "I((age)^2)", "I((age)^3)", "I((age)^4)",
+              "factor(union_fill)")
+
+tenure <- c("I((tenure/100))", "I((tenure/100)^2)", 
+            "I((tenure/100)^3)", "I((tenure/100)^4)")
+
+ind_vars <- c(controls, tenure)
+
+fixed_effects <- c("region", "marital_status", "msa", "case_id", "occ")
+
 for (loop in 1:2) {
   
   sample <- samples[loop]
@@ -1531,12 +1545,10 @@ for (loop in 1:2) {
     
     for (reg_ind in c(1:3)){
       
-      ind_vars <- c(controls, tenure)
-      fe_vars <- c(fixed_effects, "case_id", "occ")
       if (loop == 1) {
-        fe_vars <- c(fe_vars, "int_year")
+        fe_vars <- c(fixed_effects, "int_year")
       } else {
-        fe_vars <- c(fe_vars, "I(year(week_start_job))",
+        fe_vars <- c(fixed_effects, "I(year(week_start_job))",
                      "I(year(week_end_job))")
       }
       
@@ -1643,10 +1655,8 @@ for (loop in 1:2) {
 # 2. Run standard regression for each educ type 
 # (to check if results are reasonable)
 
-# Drop job_sat and part_time from dependent vars
-# so table not too wide
 var_e <- c("log_real_hrly_wage", "log_real_wkly_wage", "hours_week",
-           "any_benefits", "health")
+           "part_time", "any_benefits", "health")
 
 # Combine types and education levels
 types <- c("outsourced", "self_emp", "indep_con", 
@@ -1654,14 +1664,31 @@ types <- c("outsourced", "self_emp", "indep_con",
 educ_levels <- c("less_hs", "hs", "aa", "ba", "plus_ba",
                  "educ_other")
 
+# Need to round education if not 0/1
+educ_vars <- str_c("I(round(", educ_levels, "))")
+
 educ_type <- str_c("I(", rep(types, each=6),
                    " * round(", rep(educ_levels, times=5), "))")
 
+# Other Controls
+controls <- c("age", "I((age)^2)", "I((age)^3)", "I((age)^4)",
+              "factor(union_fill)")
+
+ols_controls <- c("black", "hispanic", "hs", "aa", "ba", "plus_ba")
+
+tenure <- c("I((tenure/100))", "I((tenure/100)^2)", 
+            "I((tenure/100)^3)", "I((tenure/100)^4)")
+
+ind_vars <- c(controls, tenure, educ_type, educ_vars)
+ind_vars_s <- c(controls, tenure, types)
+
+fixed_effects <- c("region", "marital_status", "msa", "case_id", "occ")
+
 top_e <- "
-\\begin{tabular}{lSSSSS}
+\\begin{tabular}{lSSSSSS}
 \\toprule
-& {Log Real} &  {Log Real} & {Hours Worked} & {Any} & {Health} \\\\
-& {Hourly Wages} & {Weekly Wages}  & {Per Week}  & {Benefits} & {Insurance}  \\\\\\midrule
+& {Log Real} &  {Log Real} & {Hours Worked} & {} & {Any} & {Health} \\\\
+& {Hourly Wages} & {Weekly Wages}  & {Per Week} & {Part-Time} & {Benefits} & {Insurance}  \\\\\\midrule
 "
 
 # For Slides, keep only LRW Wages, Health Benefits, and Health
@@ -1679,11 +1706,11 @@ educ_descriptions <- c("less than a highschool diploma",
 educ_labels <- c("lhs", "hs", "aa", "ba", "pba")
 educ_saves <- c("LHS", "HS", "AA", "BA", "PBA")
 
-center_e <- c("Less HS $\\times$ Outsourced", "",
-              "HS $\\times$ Outsourced", "",
-              "AA $\\times$ Outsourced", "",
-              "BA $\\times$ Outsourced", "",
-              "Plus BA $\\times$ Outsourced", "",
+center_e <- c("Less HS $\\times$ Out", "",
+              "HS $\\times$ Out", "",
+              "AA $\\times$ Out", "",
+              "BA $\\times$ Out", "",
+              "Plus BA $\\times$ Out", "",
               "$R^2$", "Observations")
 
 center_educ <- rbind("Outsourced", "", "$R^2$", "Observations")
@@ -1706,14 +1733,10 @@ for (loop in 1:2) {
     var_name <- var_names[ind]
     label <- labels[ind]
 
-    ind_vars <- c(controls, tenure, educ_type, educ_levels)
-    # For eq with only one type, need job types
-    ind_vars_s <- c(controls, tenure, types)
-    fe_vars <- c(fixed_effects, "case_id", "occ")
     if (loop == 1) {
-      fe_vars <- c(fe_vars, "int_year")
+      fe_vars <- c(fixed_effects, "int_year")
     } else {
-      fe_vars <- c(fe_vars, "I(year(week_start_job))",
+      fe_vars <- c(fixed_effects, "I(year(week_start_job))",
                    "I(year(week_end_job))")
     }
 
@@ -1753,8 +1776,10 @@ for (loop in 1:2) {
     # Now run the equation for each subset of education level 
     # (except other educ)
     for (e_l in 1:5) {
-      var_sym <- sym(educ_levels[e_l])
-      temp_data <- filter(dfs[[loop]], !!var_sym == 1)
+      ed_sym <- sym(educ_levels[e_l])
+      temp_data <- dfs[[loop]] |>
+        mutate(!!ed_sym := round(!!ed_sym)) |>
+        filter(!!ed_sym == 1)
       temp <- lm_robust(eq_s, data = temp_data, weights = weight,
                         subset = !is.na(region) & !is.na(msa)
                         & !is.na(marital_status) & !is.na(occ),
@@ -1779,7 +1804,7 @@ for (loop in 1:2) {
     add_endline()
   
   # For slides, just save LRW Wages, Any Benefits, and Health
-  s_c_educ <- c_educ[, c(1, 3, 5:7)]
+  s_c_educ <- c_educ[, c(1, 3, 6:8)]
 
   c_educ <- center_to_latex(c_educ)
   s_c_educ <- center_to_latex(s_c_educ)
@@ -1800,8 +1825,8 @@ for (loop in 1:2) {
     and .01 level ***."
   )
   
-  header <- make_header("", name_e, label, colsep = 3)
-  d_header <- make_header("d", name_e, label, colsep = 3)
+  header <- make_header("", name_e, label, colsep = 0.75)
+  d_header <- make_header("d", name_e, label, colsep = 0.75)
   s_header <- make_header("s", size = "\\small")
   
   bot_e <- make_bot(note)
@@ -2040,7 +2065,8 @@ for (ob in 1:2) {
           # (for all types, including discarded ones)
           # Because this is what the regression was run on.
           # Then take average residual of each type and add together
-          # Recreate this df just to find mean wage of entire regression sample
+          # Recreate this df just to find mean wage of entire 
+          # regression sample
           df_mean <- dfs[[k]] |> 
             filter(!is.na(!!var_sym), !is.na(tenure), 
                    !is.na(union_fill), !is.na(region),
@@ -2077,10 +2103,27 @@ for (ob in 1:2) {
                * sum(df$weight[df$outsourced == 1]))) 
           w_o_sd <- sqrt(var_resid_o)
           
+          # Test out using 25th and 75th quartiles
+          quantiles <- wtd.quantile(df$residual[df$traditional == 1], 
+                                    na.rm = TRUE, 
+                                    df$weight[df$traditional == 1])
+          w_25 <- w_bar_overall + quantiles[2]
+          w_75 <- w_bar_overall + quantiles[4]
+          
+          quantiles_o <- wtd.quantile(df$residual[df$outsourced == 1], 
+                                    na.rm = TRUE, 
+                                    df$weight[df$outsourced == 1])
+          w_o_25 <- w_bar_overall + quantiles_o[2]
+          w_o_75 <- w_bar_overall + quantiles_o[4]
+          
           data_moments <- update_parameters("w_bar", w_bar)
           data_moments <- update_parameters("w_o_bar", w_o_bar)
           data_moments <- update_parameters("w_sd", w_sd)
           data_moments <- update_parameters("w_o_sd", w_o_sd)
+          data_moments <- update_parameters("w_25", w_25)
+          data_moments <- update_parameters("w_o_25", w_o_25)
+          data_moments <- update_parameters("w_75", w_75)
+          data_moments <- update_parameters("w_o_75", w_o_75)
           
           # Plot ecdf
           temp <- df |> 
@@ -2279,7 +2322,7 @@ temp <- df_rif |>
              color = "red", size=0.5) +
   geom_point() +
   geom_errorbar(aes(ymin=low_ci, ymax=up_ci), width=.02) +
-  labs(x = "Quantile", y = "HO Occupation") +
+  labs(x = "Quantile", y = "Effect of HO Occupation") +
   xlim(0, 1) +
   theme_light(base_size = 16)
 

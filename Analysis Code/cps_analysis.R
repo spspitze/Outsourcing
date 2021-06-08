@@ -1,7 +1,7 @@
 # This file contains IPUMS CPS data from cps_raw_codebook 
 # and cps_00010.dat.gz
 # This is monthly data from Jan 2001- Oct 2016 for all men. 
-# Focus on occupation prevalance by outsourcing prevalance 
+# Focus on occupation prevalence by outsourcing prevalence 
 # (according to NLSY 79 data in occ_timeline).
 # To compare cps occ2010 to nlsy (which uses 2000 census codes 
 # from 2001-2016),
@@ -698,8 +698,12 @@ cps <- data.table(cps)
 
 ho_occ <- occ_timeline_m |>
   filter(!is.na(ho_occ)) |>
+  as_survey_design(ids = occ, weights = workers) |> 
   group_by(occ) |>
-  summarise(ho_occ = mean(ho_occ)) |>
+  summarise(
+    ho_occ = unweighted(max(ho_occ)),
+    outsourced_per = survey_mean(outsourced_per, na.rm = TRUE)
+    ) |>
   data.table()
 
 setkey(cps, occ)
@@ -823,7 +827,7 @@ n_center <- rbind("Log Real", "Hourly Wage", "Log Real",
                   "Age", "", "Percent", "Black", "Percent", "Hispanic",
                   "Less", "High School", "High School", "",
                   "Associates", "Degree", "Bachelor's", 
-                  "Degree", "Plus", "Degree",
+                  "Degree", "Post Graduate", "Degree",
                   "Single", "", "Married", "", "Observations")
 
 c_center <- c(n_center)
@@ -956,6 +960,7 @@ rm(data, data_pbs, data_r, ho_ss, matched_jobs,
 controls <- c("age", "I(age^2)", "I(age^3)", "I(age^4)", 
               "black", "hispanic", "union", "married", "single",
               "hs", "aa", "ba", "plus_ba")
+
 fe <- create_formula("", "year_month")
 
 vars <- c("log_real_wkly_wage", "log_real_hrly_wage")
@@ -978,7 +983,8 @@ for (i in seq_along(vars)) {
     filter(!is.na(ho_occ), !is.na(!!var_sym)) |>
     ggplot(aes_string(var, fill = "factor(ho_occ)")) +
     geom_density_bounds(
-      alpha = 0.2, bounds = c(0, temp_max), color = "black") +
+      alpha = 0.2, bounds = c(0, temp_max), color = "black",
+      position = "identity") +
     labs(x = var_name, y = "Density") +
     scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
     scale_fill_manual(name = "HO Occ", breaks = c(0, 1),
@@ -996,7 +1002,8 @@ for (i in seq_along(vars)) {
     filter(!is.na(ho_occ), !is.na(!!var_sym)) |>
     ggplot(aes_string(var, fill = "factor(ho_occ)")) +
     geom_density_bounds(
-      alpha = 0.2, bounds = c(0, temp_max), color = "black") +
+      alpha = 0.2, bounds = c(0, temp_max), color = "black",
+      position = "identity") +
     labs(x = var_name, y = "Density") +
     scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
     scale_fill_manual(name = "HO Occ", breaks = c(0, 1),
@@ -1040,21 +1047,21 @@ for (i in seq_along(vars)) {
   # rm(temp, reg)
   
   # Get more sophisticated. Use RIF regressions on various 
-  # quartiles of the regression and plot how ho_occ affects lrw wages
+  # quartiles of the regression and plot how ho_occ and
+  # outsourced_per affect lrw wages
   # Note: program can't handle fixed effects, 
   # so include everything for now
-  # Also can't subset, so need to ensure correct dataset upfront
-  # Data might be too big, sample min(NROW, 500,000) points
   set.seed(1)
   data_rif <- cps |> 
     filter(!is.na(!!var_sym), !is.na(ho_occ), !is.na(age), 
            !is.na(black), !is.na(hispanic),
            !is.na(union), !is.na(married), !is.na(hs)) |> 
     select(log_real_hrly_wage, log_real_wkly_wage,
-           ho_occ, age, black, hispanic, union, married, single,
+           ho_occ, outsourced_per, age, black, hispanic, union, married, single,
            hs, aa, ba, plus_ba, year_month, earnwt) 
    
-  data_rif <- sample_n(data_rif, min(500000, NROW(data_rif)))
+  # If data is too big and we need to subset
+  # data_rif <- sample_n(data_rif, min(500000, NROW(data_rif)))
   
   # rm(cps)
   gc()
@@ -1081,11 +1088,44 @@ for (i in seq_along(vars)) {
                color = "red", size=0.5) +
     geom_point() +
     geom_errorbar(aes(ymin=low_ci, ymax=up_ci), width=.02) +
-    labs(x = "Quantile", y = "HO Occupation") +
+    labs(x = "Quantile", y = "Effect of HO Occupation") +
     xlim(0, 1) +
     theme_light(base_size = 16)
   
   ggsave(str_c(figure_folder, save_name, " RIF HO Occ.pdf"),
+         height = height, width = width)
+  
+  rm(temp, reg_rif, df_rif, coeffs, up_ci, low_ci)
+  
+  gc()
+  
+  eq_rif <- 
+    create_formula(var, c("outsourced_per", controls, "factor(year_month)"))
+  
+  reg_rif <- rifr(eq_rif, data_rif, weights = "earnwt", 
+                  method = "quantile", quantile = quantiles,
+                  kernel = "gaussian")
+  
+  # Get point estimates and ci. Turn into a df to plot
+  coeffs <- reg_rif$Coef["outsourced_per", ]
+  up_ci <- coeffs + reg_rif$SE["outsourced_per", ] * 1.96
+  low_ci <- coeffs - reg_rif$SE["outsourced_per", ] * 1.96
+  
+  df_rif <- tibble(
+    quantiles, coeffs, up_ci, low_ci
+  )
+  
+  temp <- df_rif |> 
+    ggplot(aes(x=quantiles, y=coeffs)) +
+    geom_hline(yintercept=0, linetype="dashed", 
+               color = "red", size=0.5) +
+    geom_point() +
+    geom_errorbar(aes(ymin=low_ci, ymax=up_ci), width=.02) +
+    labs(x = "Quantile", y = "Effect of Outsourcing Percent") +
+    xlim(0, 1) +
+    theme_light(base_size = 16)
+  
+  ggsave(str_c(figure_folder, save_name, " RIF Outsourcing Percent.pdf"),
          height = height, width = width)
   
   rm(temp, data_rif, reg_rif, df_rif, coeffs, up_ci, low_ci)
