@@ -28,12 +28,14 @@ new_data[new_data == -5] = NA  # Non-interview
 # Reshape and Clean Data --------------------------------------------------
 
 # Rename case_id and set SAMPLE_SEX to female
+# (Previous code used female, but no longer need it. Drop)
 new_data <- new_data |>
   rename(case_id = CASEID,
          female = SAMPLE_SEX) |> 
-  mutate(female = 1 * (female == 2))
+  mutate(female = 1 * (female == 2)) |>
+  select(-female)
 
-constant <- c("case_id", "female")
+constant <- c("case_id")
 
 vary <- "STATUS_WK_NUM"
 

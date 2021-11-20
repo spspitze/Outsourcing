@@ -21,7 +21,7 @@ new_data <- fread(str_c(raw_folder, "emp_hist_rost_raw.csv"))
 # Handle missing values
 
 new_data[new_data == -1] = NA  # Refused 
-new_data[new_data == -2] = NA  # Dont know 
+new_data[new_data == -2] = NA  # Don't know 
 new_data[new_data == -3] = NA  # Invalid missing 
 new_data[new_data == -4] = NA  # Valid missing 
 new_data[new_data == -5] = NA  # Non-interview 
@@ -233,11 +233,11 @@ long <- long |>
     union_fill = ifelse(is.na(union), -1, round(union))
   ) |> 
   mutate(
-    # If real wage below 3 or above 400 set wage and earn to NA
+    # If real wage below 3 or above 500 set wage and earn to NA
     # If hours_week is <=0 or >80, set to NA
     # (Do this after estimating missing combined)
     work_drop = (log_real_hrly_wage < log(3) 
-                 | log_real_hrly_wage > log(400)
+                 | log_real_hrly_wage > log(500)
                  | hours_week > 80 | hours_week <= 0),
     log_real_hrly_wage = ifelse(work_drop, NA, log_real_hrly_wage),
     log_real_wkly_wage = ifelse(work_drop, NA, log_real_wkly_wage),

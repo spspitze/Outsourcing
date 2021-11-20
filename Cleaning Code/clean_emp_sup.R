@@ -538,7 +538,7 @@ col_names <- c(
   "JOB_UID_EMPROSTER8_2016")
 
 new_data <- read_table2(str_c(raw_folder, "emp_sup_raw.dat"), 
-                        col_names = col_names
+                        col_names = col_names,
                         col_types = cols(.default = col_double())) 
 
 # Handle missing values

@@ -152,8 +152,8 @@ sg <- cws |>
 # Compare outsourced_job summary statistics
 vars_sum_js <- c("log_real_hrly_wage", "log_real_wkly_wage", 
                  "part_time", "health", "retirement", "union",
-                 "less_hs", "hs", "aa", "ba", "plus_ba",
-                 "black", "hispanic", "female", "age", "n")
+                 "less_hs", "hs", "aa", "ba", "plus_ba", "age", "female", 
+                 "black", "hispanic", "n")
 
 sum_js <- list(janitor, janitor, sg, sg)
 comp_js <- list(janitor, sg)
@@ -200,13 +200,12 @@ label_js <- c("janitor", "sg")
 occ_js <- c("Janitors", "Security Guards")
 
 center_r <- rbind("Log Real", "Hourly Wage", "Log Real",
-                   "Weekly Wage", "Part Time", "", 
-                   "Health Insurance", "", "Retirement Plan", "",
-                   "Union", "", "No HS Diploma", "", "HS Diploma",
-                   "","AA Degree", "", "BA Degree", "",
-                   "Post Graduate", "Degree", "Black", "",
-                   "Hispanic", "", "Female", "", "Age", "",
-                   "Observations")
+                  "Weekly Wage", "Part Time", "", 
+                  "Health Insurance", "", "Retirement Plan", "",
+                  "Union", "", "Less", "High School", "High School", "",
+                  "Associate's", "Degree", "Bachelor's", 
+                  "Degree", "Postgraduate", "Degree", "Age", "", "Female", "",
+                  "Black", "", "Hispanic", "", "Observations")
 
 for (js in 1:2){
   
@@ -267,7 +266,7 @@ for (js in 1:2){
     " following \\citet{dubekaplan2010}. Observations are at the
     worker-job level and summary statistics are weighted at the 
     person level. Stars represent significant difference from 
-    outsourced at the .10 level *, .05 level **, and .01 level ***."
+    outsourced at the .10 level (*), .05 level (**), and .01 level (***)."
   )
   
   header <- make_header("", name, label)
@@ -288,7 +287,7 @@ for (js in 1:2){
 
 # What are the self-reported job types of DK's outsourced?
 # Use data.frame's SQL like capabilities to make these tables
-top <- "\\begin{tabular}{lrr|r}
+top <- "\\begin{tabular}{lrrr}
 \\toprule
 & \\multicolumn{3}{c} {Industry-Occupation (Dube and Kaplan)} \\\\
 Self-Reported & Outsourced & Not Outsourced & Total \\\\ \\midrule
@@ -297,7 +296,7 @@ Self-Reported & Outsourced & Not Outsourced & Total \\\\ \\midrule
 occ_js <- c("janitors (occupation 753)",
             "security guards (occupation 726)")
 ind_js <- c("722", "744")
-label <- c("janitors", "sg")
+labels <- c("janitors", "sg")
 save <- c("Janitors", "Security Guards")
 
 types <- c("contract_work", "indep_con", "temp_work",
@@ -305,7 +304,7 @@ types <- c("contract_work", "indep_con", "temp_work",
 
 dt_js <- list(data.table(janitor), data.table(sg))
 
-center_r <- c("Contracted Out", "Independent Contractor", 
+center_r <- c("Contracted-Out", "Independent Contractor", 
               "Temp Worker", "On-Call Worker", "Day Laborer",
               "Self-Employed", "Traditional Employee", "Total" )
 
@@ -337,14 +336,14 @@ for (js in 1:2){
   
   center <- center_r |> 
     cbind(col_i) |>
-    add_endline(midrule = c(7)) |>
+    add_endline() |>
     center_to_latex()
   
   name <- 
     str_c(
       "Job Type Classification Comparison to Dube and Kaplan 2010 for ",
       save[js], ": CWS")
-  label <- str_c("dk_types_", label[js], "_cws")
+  label <- str_c("dk_types_", labels[js], "_cws")
   note <- str_c(
     "Counts of \\citet{dubekaplan2010} (DK) method of measuring 
     outsourcing versus CWS self-reported job type for ", occ_js[js],
@@ -379,12 +378,11 @@ for (js in 1:2){
 
 }
 
-
 # Break Down PBS and other Ind ----------------------------------------------------------
 
 cws <- data.table(cws) 
 
-top <- "\\begin{tabular}{lrr|r}
+top <- "\\begin{tabular}{lrrr}
 \\toprule
 Self-Reported & PBS & Not PBS & Total \\\\ \\midrule
 "
@@ -392,7 +390,7 @@ Self-Reported & PBS & Not PBS & Total \\\\ \\midrule
 types <- c("contract_work", "indep_con", "temp_work",
            "on_call", "day_laborer", "self_emp", "traditional")
 
-center <- c("Contracted Out", "Independent Contractor", "Temp Worker",
+center <- c("Contracted-Out (This Paper)", "Independent Contractor", "Temp Worker",
             "On-Call Worker", "Day Laborer", "Self-Employed",
             "Traditional Employee", "Total" )
 
@@ -420,7 +418,7 @@ col_i <- rbind(
 
 center <- center |>
   cbind(col_i) |>
-  add_endline(midrule = c(7)) |>
+  add_endline() |>
   center_to_latex()
 
 name <- "Job Types of Personal Business Service Workers: CWS"

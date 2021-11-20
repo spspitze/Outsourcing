@@ -3,6 +3,7 @@
 rm(list = ls())
 
 library(outsourcing)
+library(DescTools)
 library(zeallot)
 library(tidyverse)
 
@@ -152,7 +153,7 @@ for (year in seq(2008, 2016, by=2)){
 }
 
 # Starting in 2014, work backwards and fill in NA with future degree 
-# (assume the haven"t gained education) 
+# (assume the haven't gained education) 
 # This especially helps determine no degree, as this was not an option prior
 # to 2008
 for (year in seq(2014, 2002, by = -2)){
@@ -163,13 +164,12 @@ for (year in seq(2014, 2002, by = -2)){
   )
 }
 
-# Mark each person"s msa status, marital status, and weeks worked
+# Mark each person's msa status, marital status, and weeks worked
 for (year in seq(2002, 2016, by=2)){
   new_data <- 
     rename(new_data,
       !!str_c("msa_", year) := !!str_c(q_msa, year),
-      !!str_c("marital_status_", year) := !!str_c(q_mar, year),
-      # !!str_c("wks_work_prev_", year) := !!str_c(q_wks, year)
+      !!str_c("marital_status_", year) := !!str_c(q_mar, year)
       )
 }
 
@@ -212,7 +212,18 @@ long <- new_data |>
   # Keep only observations with at least one job specific bit of data
   filter_at(vars(-case_id:-int_year), any_vars(!is.na(.))) 
 
+# Create a variable that finds Mode. 
+# If multiple, takes first observation.
+find_mode <- function(vector) {
+  temp <- Mode(vector, na.rm = T)[1]
+  ifelse(!is.na(temp), temp, vector[[1]])
+}
+
 long <- long |> 
+  # Get modal education level for each person. Assume this is always their 
+  # education
+  group_by(case_id) |>
+  mutate(educ = find_mode(educ)) |>
   # Create education buckets and find age each year
   mutate(
     age = int_year - birth_year,
@@ -221,18 +232,15 @@ long <- long |>
     aa = 1 * (educ == 2),
     ba = 1 * (educ %in% c(3, 4)),
     plus_ba = 1 * ((educ > 4) & (educ < 8)),
-    educ_other = 1 * (educ == 8),
-    educ = 1 * less_hs + 2 * hs + 3 * aa + 4 * ba 
-    + 5 * plus_ba + 6 * educ_other 
+    educ_other = 1 * (educ == 8)
   ) |> 
   # For missing data, fill in with previous answers. 
   # If no previous answers, fill in with next answers
-  group_by(case_id) |>
   fill(msa, region, marital_status, tot_child, hh_child, 
        .direction = "downup") |>  
   ungroup() |> 
   select(-educ)
-
+  
 # # Data from 2014 and 2016 interviews in on jobs are less reliable.
 # Drop these years
 # long <- filter(long, int_year < 2014) 

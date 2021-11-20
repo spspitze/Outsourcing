@@ -58,6 +58,7 @@ add_suffix <- function(var_vec, suffix_vec, sep = "_") {
 # Create wj_prev/next that sets 1 week to NA
 # Create jj_transition if weeks_job_prev = 1
 # Create same occ/ind prev/next
+# Separate workers into <ba and >ba (not educ_other)
 transition <- transition |>
   rename(
     u_f_curr = union_fill_curr, 
@@ -72,7 +73,8 @@ transition <- transition |>
     same_occ_prev = (occ_curr == occ_prev),
     same_ind_prev = (ind_curr == ind_prev),
     same_occ_next = (occ_curr == occ_next),
-    same_ind_next = (ind_curr == ind_next)
+    same_ind_next = (ind_curr == ind_next),
+    high_ed = ifelse(educ_other == 1, NA, ba + plus_ba)
   )
 
 # Create transition_long, which switches data from
@@ -87,11 +89,11 @@ transition <- transition |>
 vars_to_long <- c(
   "emp_id", "occ", "ind", "pbs", "tenure", "max_tenure",
   "week_start_job", "week_end_job", "log_real_hrly_wage", 
-  "log_real_wkly_wage", "hours_week", "part_time", "union", "u_f", 
-  "job_sat", "any_benefits", "health", "retirement", "self_emp",
+  "log_real_wkly_wage", "log_real_tot_comp", "hours_week",
+  "part_time", "union", "u_f", "job_sat", "any_benefits", 
+  "health", "retirement", "self_emp",
   "same_occ", "same_ind", "weeks_job", "wj", "jj", "hh_child",
-  "marital_status", "msa", "region", "tot_child", "less_hs",
-  "hs", "aa", "ba", "plus_ba", "educ_other", "age",
+  "marital_status", "msa", "region", "tot_child", "age",
   "outsourced_per", "ho_occ", "outsourced_wage_above_per",
   "first_week", "last_week", "outsourced", "traditional",
   "self_emp", "indep_con", "on_call", "temp_work")
@@ -120,8 +122,8 @@ transition_long <- transition |>
 
 vars_sum_all <- c("log_real_hrly_wage", "log_real_wkly_wage",
                   "hours_week", "part_time", "union", "u_f", 
-                  "job_sat", "any_benefits", "health", 
-                  "retirement", "self_emp", "indep_con", "on_call",
+                  "job_sat", "any_benefits", "health", "retirement",
+                  "log_real_tot_comp", "self_emp", "indep_con", "on_call",
                   "temp_work", "traditional")
 
 vars_sum_np <- c("same_occ", "same_ind", "outsourced", 
@@ -166,22 +168,29 @@ s_top <- "\\begin{tabular}{lSSSS}
 
 # Create table in Latex
 vars_t <- c("log_real_hrly_wage", "log_real_wkly_wage", 
-            "hours_week", "part_time", "union", "job_sat",
-            "health", "any_benefits")
+            "hours_week", "part_time", "union", 
+            "health", "retirement", "any_benefits", "log_real_tot_comp")
 
 # Divide variables by mean or percent (they are different below)
 vars_t_m <- c("log_real_hrly_wage", "log_real_wkly_wage",
-              "hours_week", "job_sat")
+              "hours_week", "log_real_tot_comp")
 
-vars_t_p <- c("part_time", "union", "health", "any_benefits")
+vars_t_p <- c("part_time", "union", "health", "retirement", "any_benefits")
 
 center_r <- rbind("Outsourced", "", "Same", "Occupation", 
                   "Same", "Industry", "Log Real", "Hourly Wage",
                   "Log Real", "Weekly Earnings", "Hours Worked",
-                  "Weekly", "Part-Time", "", "Union", "",
-                  "Job Satisfaction", "(Lower Better)", "Health",
-                  "Insurance", "Any Benefits", "", "Weeks To",
-                  "Find Job", "Weeks To", "Find Job ($>1$ week)",
+                  "Weekly", "Part-Time", "", "Union", "", "Health",
+                  "Insurance\\tnote{a}", "Retirement", "Plan\\tnote{a}",
+                  "Any Benefits\\tnote{a}", "", 
+                  "Log Real", "Total Compensation\\tnote{b}",
+                  "Weeks To", "Find Job", "Weeks To", "Find Job ($>1$ week)",
+                  "Job-to-Job", "Transition", "Observations")
+
+# Slide center will be different (smaller, no tablenotes)
+center_s <- rbind("Outsourced", "", "Same", "Occupation", 
+                  "Same", "Industry", 
+                  "Weeks To", "Find Job", "Weeks To", "Find Job ($>1$ week)",
                   "Job-to-Job", "Transition", "Observations")
 
 # Also check if new job has same occ/ind
@@ -193,12 +202,12 @@ for (ho in 1:2) {
     Occ_name <- ""
     occ_label <- ""
   } else {
-    occ_name <- " in high outsourcing occupations"
+    occ_name <- " in high-outsourcing occupations"
     Occ_name <- " HO Occupations"
     occ_label <- "_ho"
   }
   
-  center <- c(center_r)
+  center <- c()
   
   for (out in c(1, 4)){
     
@@ -337,12 +346,11 @@ for (ho in 1:2) {
   }
   
   # Keep only certain rows/columns for Slides
-  s_center <- center[c(1:6, 23:28), c(1:2, 4:5, 7:8)]
+  s_center <- center[c(1:6, 25:30), c(1, 3:4, 6:7)]
   # Put observations back
   s_center <- rbind(
     s_center,
     cbind(
-      "Observations ",
       str_c("& \\multicolumn{2}{c}{{",
             transition_summary[[ho]]$n[1], "}}"),
       "", 
@@ -351,8 +359,13 @@ for (ho in 1:2) {
       "", "\\\\")
   ) 
   
-  center <- center_to_latex(center)
-  s_center <- center_to_latex(s_center)
+  center <- center_r |>
+    cbind(center) |>
+    center_to_latex()
+    
+  s_center <- center_s |>
+    cbind(s_center) |>
+    center_to_latex()
   
   name <- "Summary Statistics for Previous, Current, and Next Jobs"
   label <- str_c("jobs_transitions", occ_label)
@@ -360,17 +373,22 @@ for (ho in 1:2) {
   "Job summary statistics in the NLSY", occ_name,
   " at previous, current, and next job for workers who are currently 
   outsourced compared to those who are currently in traditional jobs.
-  Observations are at the person-job level and summary statistics 
+  Observations are at the person-job level, and summary statistics 
   are weighted at the person level. Stars represent significance
   difference from current job (except for outsourced which 
   represents significance difference from 0) 
-  at the .10 level *, .05 level **, and .01 level ***.
+  at the .10 level (*), .05 level (**), and .01 level (***).
+  \\item[a] Benefits measure if worker reports access to
+  benefit through employer.
+  \\item[b] Log real total compensation imputed using year,
+  occupation, log real weekly wage, access to health insurance
+  and retirement benefits.
   "
   )
   
-  header <- make_header("", name, label)
-  d_header <- make_header("d", name, label)
-  s_header <- make_header("s", size="\\footnotesize")
+  header <- make_header("", name, label, colsep = -1.0)
+  d_header <- make_header("d", name, label, colsep = -1.0)
+  s_header <- make_header("s", size = "\\footnotesize")
   
   bot <- make_bot(note)
   
@@ -381,7 +399,7 @@ for (ho in 1:2) {
           Occ_name, ".tex"),
     quote=F, col.names=F, row.names=F, sep="")
   
-  # Save to Drafts (Use s_table top to resize)
+  # Save to Drafts
   write.table(
     str_c(d_header, top, center, bot),
     str_c(d_table_folder,
@@ -402,10 +420,11 @@ for (ho in 1:2) {
 # outsourced to traditional and traditional to outsourced
 
 # Summary Statistics By Job Type before and after
-# Study 3 data sets, one looking at all workers, 
-# one looking at just ho workers, and one
+# Study 4 data sets, one looking at all workers, 
+# one looking at just ho workers, one
 # looking at all workers and dividing by jj transitions
-# or not. These two functions will help with this
+# or not, and one looking at all workers and dividing by
+# education. These functions will help with this
 divide_jj <- function(data, cond) {
   if (cond == TRUE) {
     data <- data |>
@@ -427,8 +446,30 @@ denote_jj <- function(data, cond) {
   data
 }
 
+divide_ed <- function(data, cond) {
+  if (cond == TRUE) {
+    data <- data |>
+      filter(!is.na(high_ed)) |>
+      group_by(high_ed, .add = TRUE)
+  }
+  
+  data
+}
+
+denote_ed <- function(data, cond) {
+  if (cond == TRUE) {
+    data <- data |>
+      mutate(
+        ed_trans_type = str_c(trans_type, high_ed, sep = "_")
+      )
+  }
+  
+  data
+}
+
 vars_sum_all <- c("log_real_hrly_wage", "log_real_wkly_wage",
-                  "hours_week", "part_time", "union", "job_sat",
+                  "log_real_tot_comp", "hours_week", "part_time",
+                  "union", "job_sat",
                   "any_benefits", "health", "retirement")
 
 vars_sum_np <- c("same_occ", "same_ind", "weeks_job", "wj", "jj")
@@ -436,14 +477,16 @@ vars_sum_np <- c("same_occ", "same_ind", "weeks_job", "wj", "jj")
 vars_mean <- c(vars_sum_all, vars_sum_np, "n")
 
 transition_type <- c(split_data(transition_long), 
+                     list(transition_long),
                      list(transition_long))
 
-for (i in 1:3) { 
+for (i in 1:4) { 
   transition_type[[i]] <- transition_type[[i]] |>
     filter(trans_type != "other", job_time != "next") |>
     as_survey_design(ids = case_id, weights=weight) |>
     group_by(trans_type, job_time) |>
     divide_jj(i == 3) |>
+    divide_ed(i == 4) |>
     mutate(n = n()) |> 
     summarise_at(vars_mean, survey_mean, na.rm = T) |>
     select(-n_se) |> 
@@ -466,20 +509,31 @@ for (i in 1:3) {
             "Outsourced"
         ) 
     ) |>
-    denote_jj(i == 3)
+    denote_jj(i == 3) |>
+    denote_ed(i == 4)
 }
 
 # For outsourced and traditional jobs, see how previous and current
 # jobs differ
 var_label <- c("Log Real Hourly Wage", "Log Real Weekly Wage", 
-               "Hours Worked Per Week", "Part-Time", "Union",
+               "Log Real Total Compensation", "Hours Worked Per Week",
+               "Part-Time", "Union",
                "Job Satisfaction (Lower Better)", "Any Benefits",
                "Health Insurance", "Retrement Benefits")
 
-var_save <- c("LRH Wage", "LRW Wage", "Hours", "Part Time", "Union",
-              "Job Satisfaction", "Benefits", "Health", "Retirement")
+var_save <- c("LRH Wage", "LRW Wage", "LR Tot Comp", "Hours",
+              "Part Time", "Union", "Job Satisfaction", "Benefits",
+              "Health", "Retirement")
 
-ho_save <- c("", " Ever HO Occupation", " by Transition Length")
+ho_save <- c("", " Ever HO Occupation", " by Transition Length",
+             " by Education")
+
+# Here are some options useful for transition length/education figures
+divs <- c("jj", "ed")
+lines <- c("prev_curr_jj", "high_ed")
+leg_names <- c("Transition Length", "Education")
+leg_labels <- list(c("Job-to-Job (1 Week)", "Unemployment (>1 Week)"),
+                   c("Bachelor's Degree", "No Bachelor's Degree"))
 
 for (i in seq_along(vars_sum_all)) {
   
@@ -495,7 +549,7 @@ for (i in seq_along(vars_sum_all)) {
       geom_line(show.legend = FALSE) +
       # Include labels on all points 
       geom_text(aes(label = type, hjust = "outward"), 
-                size = 4, check_overlap = TRUE) +
+                size = 5, check_overlap = TRUE) +
       labs(x = "Job", y = var_label[i]) +
       scale_color_manual(name = "Transition Type", 
                          breaks = c("trad_trad", "trad_out",
@@ -527,36 +581,36 @@ for (i in seq_along(vars_sum_all)) {
         geom_text(aes(x = FALSE,
                       y = transition_type[[ho]][[var]][transition_type[[ho]]$curr==F & transition_type[[ho]]$trans_type == "trad_out"],
                       label = "Traditional", hjust = "outward"), 
-                  size = 4, color = "dark green") +
+                  size = 5, color = "dark green") +
         geom_text(aes(x = FALSE,
                       y = transition_type[[ho]][[var]][transition_type[[ho]]$curr==F & transition_type[[ho]]$trans_type == "trad_trad"],
                       label = "Traditional", hjust = "outward"), 
-                  size = 4, color = "blue") +
+                  size = 5, color = "blue") +
         geom_text(aes(x = FALSE,
                       y = transition_type[[ho]][[var]][transition_type[[ho]]$curr==F & transition_type[[ho]]$trans_type == "out_out"],
                       label = "Outsourced", hjust = "outward"),
-                  size = 4, color = "red") +
+                  size = 5, color = "red") +
         geom_text(aes(x = FALSE,
                       y = transition_type[[ho]][[var]][transition_type[[ho]]$curr==F & transition_type[[ho]]$trans_type == "out_trad"],
                       label = "Outsourced", hjust = "outward"),
-                  size = 4, color = "orange") +
+                  size = 5, color = "orange") +
         # Current
         geom_text(aes(x = TRUE,
-                      y = transition_type[[ho]][[var]][transition_type[[ho]]$curr==T & transition_type[[ho]]$trans_type == "trad_trad"],
-                      label = "Outsourced", hjust = "outward"), 
-                  size = 4, color = "dark green") +
-        geom_text(aes(x = TRUE,
                       y = transition_type[[ho]][[var]][transition_type[[ho]]$curr==T & transition_type[[ho]]$trans_type == "trad_out"],
+                      label = "Outsourced", hjust = "outward"), 
+                  size = 5, color = "dark green") +
+        geom_text(aes(x = TRUE,
+                      y = transition_type[[ho]][[var]][transition_type[[ho]]$curr==T & transition_type[[ho]]$trans_type == "trad_trad"],
                       label = "Traditional", hjust = "outward"), 
-                  size = 4, color = "blue") +
+                  size = 5, color = "blue") +
         geom_text(aes(x = TRUE,
                       y = transition_type[[ho]][[var]][transition_type[[ho]]$curr==T & transition_type[[ho]]$trans_type == "out_out"],
                       label = "Outsourced", hjust = "outward"),
-                  size = 4, color = "red") +
+                  size = 5, color = "red") +
         geom_text(aes(x = TRUE,
                       y = transition_type[[ho]][[var]][transition_type[[ho]]$curr==T & transition_type[[ho]]$trans_type == "out_trad"],
                       label = "Traditional", hjust = "outward"),
-                  size = 4, color = "orange") +
+                  size = 5, color = "orange") +
         labs(x = "Job", y = var_label[i]) +
         scale_color_manual(name = "Transition Type", 
                            breaks = c("trad_trad", "trad_out",
@@ -588,36 +642,36 @@ for (i in seq_along(vars_sum_all)) {
         geom_text(aes(x = FALSE,
                       y = transition_type[[ho]][[var]][transition_type[[ho]]$curr==F & transition_type[[ho]]$trans_type == "trad_out"],
                       label = "Traditional", hjust = "outward"), 
-                  size = 4, color = "dark green") +
+                  size = 5, color = "dark green") +
         geom_text(aes(x = FALSE,
                       y = transition_type[[ho]][[var]][transition_type[[ho]]$curr==F & transition_type[[ho]]$trans_type == "trad_trad"],
                       label = "Traditional", hjust = "outward"), 
-                  size = 4, color = "blue") +
+                  size = 5, color = "blue") +
         geom_text(aes(x = FALSE,
                       y = transition_type[[ho]][[var]][transition_type[[ho]]$curr==F & transition_type[[ho]]$trans_type == "out_out"],
                       label = "Outsourced", hjust = "outward"),
-                  size = 4, color = "red") +
+                  size = 5, color = "red") +
         geom_text(aes(x = FALSE,
                       y = transition_type[[ho]][[var]][transition_type[[ho]]$curr==F & transition_type[[ho]]$trans_type == "out_trad"],
                       label = "Outsourced", hjust = "outward"),
-                  size = 4, color = "orange") +
+                  size = 5, color = "orange") +
         # Current
         geom_text(aes(x = TRUE,
-                      y = transition_type[[ho]][[var]][transition_type[[ho]]$curr==T & transition_type[[ho]]$trans_type == "trad_trad"],
-                      label = "Outsourced", hjust = "outward"), 
-                  size = 4, color = "dark green") +
-        geom_text(aes(x = TRUE,
                       y = transition_type[[ho]][[var]][transition_type[[ho]]$curr==T & transition_type[[ho]]$trans_type == "trad_out"],
+                      label = "Outsourced", hjust = "outward"), 
+                  size = 5, color = "dark green") +
+        geom_text(aes(x = TRUE,
+                      y = transition_type[[ho]][[var]][transition_type[[ho]]$curr==T & transition_type[[ho]]$trans_type == "trad_trad"],
                       label = "Traditional", hjust = "outward"), 
-                  size = 4, color = "blue") +
+                  size = 5, color = "blue") +
         geom_text(aes(x = TRUE,
                       y = transition_type[[ho]][[var]][transition_type[[ho]]$curr==T & transition_type[[ho]]$trans_type == "out_out"],
                       label = "Outsourced", hjust = "outward"),
-                  size = 4, color = "red") +
+                  size = 5, color = "red") +
         geom_text(aes(x = TRUE,
                       y = transition_type[[ho]][[var]][transition_type[[ho]]$curr==T & transition_type[[ho]]$trans_type == "out_trad"],
                       label = "Traditional", hjust = "outward"),
-                  size = 4, color = "orange") +
+                  size = 5, color = "orange") +
         labs(x = "Job", y = var_label[i]) +
         scale_color_manual(name = "Transition Type", 
                            breaks = c("trad_trad", "trad_out",
@@ -638,24 +692,31 @@ for (i in seq_along(vars_sum_all)) {
     }
   }
   
-  # HO 3 has different linestyle by job transition
-  for (ho in c(3)) {
+  # HO 3/4 has different line styles by job transition/education
+  for (ho in c(3, 4)) {
+    
+    # These two are grouped together, so index is 1/2
+    j <- ho - 2
+    line <- sym(lines[j])
+    group <- sym(str_c(divs[j], "_trans_type"))
+    leg_name <- leg_names[j]
+    leg_label <- leg_labels[[j]]
+    
     temp <- transition_type[[ho]] |> 
       ggplot(aes(x = curr, y = !!var_sym, 
                  color = trans_type, 
-                 linetype = factor(prev_curr_jj),
-                 group = jj_trans_type)) +
+                 linetype = factor(!!line),
+                 group = !!group)) +
       # geom_point(size = 4) +
       geom_line(show.legend = TRUE) +
       # Include labels on all points 
       geom_text(aes(label = type, hjust = "outward"), 
-                size = 4, check_overlap = TRUE) +
+                size = 5, check_overlap = TRUE) +
       labs(x = "Job", y = var_label[i]) +
       scale_linetype_manual(
-        name = "Transition Length",
+        name = leg_name,
         breaks = c(1, 0), values = c("solid", "dashed"),
-        labels = c("Job-to-Job (1 Week)",
-                   "Unemployment ($>$1 Week)")) +
+        labels = leg_label) +
       scale_color_manual(name = "Transition Type", 
                          breaks = c("trad_trad", "trad_out",
                                     "out_trad", "out_out"),
@@ -699,7 +760,7 @@ for (ho in 1:2) {
     Occ_name <- ""
     occ_label <- ""
   } else {
-    occ_name <- " in high outsourcing occupations"
+    occ_name <- " in high-outsourcing occupations"
     Occ_name <- " HO Occupations"
     occ_label <- "_ho"
   }
@@ -730,7 +791,7 @@ for (ho in 1:2) {
     " between previous and current job. Transitions are grouped 
     by workers coming from and currently in outsourced or 
     traditional jobs. Observations are at the person-job 
-    level and summary statistics are weighted at the person level."
+    level, and summary statistics are weighted at the person level."
   )
   
   header <- make_header("", name, label)
@@ -768,21 +829,21 @@ for (ho in 1:2) {
 # residuals for previous jobs. Bug prevents using predict for 
 # lm_robust with fe, so regressions will be slow
 # Run regressions for all workers, use residuals for
-# all workers, HO workers, and all workers by job transition length.
+# all workers, HO workers, all workers by job transition length,
+# and all workers by education.
 
-vars_reg <- c("log_real_hrly_wage", "log_real_wkly_wage", 
+vars_reg <- c("log_real_hrly_wage", "log_real_wkly_wage", "log_real_tot_comp",
               "hours_week", "part_time", "job_sat", 
               "any_benefits", "health", "retirement")
 
-var_label <- c("Log Real Hourly Wage", "Log Real Weekly Wage", 
+var_label <- c("Log Real Hourly Wage", "Log Real Weekly Wage",
+               "Log Real Total Compensation",
                "Hours Worked Per Week", "Part-Time",
                "Job Satisfaction (Lower Better)", "Any Benefits",
                "Health Insurance", "Retrement Benefits")
 
-var_save <- c("LRH Wage", "LRW Wage", "Hours", "Part Time",
+var_save <- c("LRH Wage", "LRW Wage", "LR Tot Comp", "Hours", "Part Time",
               "Job Satisfaction", "Benefits", "Health", "Retirement")
-
-ho_save <- c("", " Ever HO Occupation", " by Transition Length")
 
 types <- c("self_emp", "indep_con", "temp_work", "on_call")
 
@@ -798,6 +859,7 @@ fixed_effects <- c("factor(region)", "factor(marital_status)",
                    "factor(I(year(week_end_job)))")
 
 for (ind in seq_along(vars_reg)) {
+  
   var <- vars_reg[ind]
   var_sym <- sym(var)
   
@@ -831,18 +893,19 @@ for (ind in seq_along(vars_reg)) {
       residual = !!var_sym - predict
     )
   
-  vars_temp <- c("residuals", "n")
-  temp_summary <- c(split_data(temp_data), list(temp_data))
+  vars_temp <- c("residual", "n")
+  temp_summary <- c(split_data(temp_data), list(temp_data), list(temp_data))
   
-  for (ho in 1:3) {
+  for (ho in 1:4) {
     temp_summary[[ho]] <- temp_summary[[ho]] |>
       as_survey_design(ids = case_id, weights=weight) |>
       group_by(trans_type, job_time) |>
       divide_jj(ho == 3) |>
+      divide_ed(ho == 4) |>
       mutate(n = n()) |> 
       summarise_at(vars_temp, survey_mean, na.rm = T) |> 
       select(-n_se) |> 
-      # Label job type as T or O for graphing
+      # Label job type as Traditional or Outsourced for graphing
       mutate(
         curr = ifelse(job_time == "curr", TRUE, FALSE),
         type = 
@@ -861,7 +924,8 @@ for (ind in seq_along(vars_reg)) {
               "Outsourced"
         )
       ) |>
-      denote_jj(ho == 3)
+      denote_jj(ho == 3)|>
+      denote_ed(ho == 4)
   }
   
   # Save first two data sets mostly the same
@@ -871,7 +935,7 @@ for (ind in seq_along(vars_reg)) {
                  color = trans_type, group = trans_type)) +
       geom_line(show.legend = FALSE) +
       # Include labels on all points 
-      geom_text(aes(label = type, hjust = "outward"), size = 4, 
+      geom_text(aes(label = type, hjust = "outward"), size = 5, 
                 check_overlap = TRUE) +
       labs(x = "Job", y = str_c(var_label[ind], " Residuals")) +
       scale_color_manual(name = "Transition Type", 
@@ -903,39 +967,97 @@ for (ind in seq_along(vars_reg)) {
         # Previous
         geom_text(aes(x = FALSE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==F & temp_summary[[ho]]$trans_type == "trad_out"],
-                      label = "Traditional", hjust = "outward", 
-                      nudge_y = -.0007), 
-                  size = 4, color = "dark green") +
+                      label = "Traditional", hjust = "outward"),
+                  size = 5, color = "dark green") +
         geom_text(aes(x = FALSE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==F & temp_summary[[ho]]$trans_type == "trad_trad"],
                       label = "Traditional", hjust = "outward"), 
-                  size = 4, color = "blue") +
+                  size = 5, color = "blue") +
         geom_text(aes(x = FALSE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==F & temp_summary[[ho]]$trans_type == "out_out"],
                       label = "Outsourced", hjust = "outward"),
-                  size = 4, color = "red") +
+                  size = 5, color = "red") +
         geom_text(aes(x = FALSE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==F & temp_summary[[ho]]$trans_type == "out_trad"],
-                      label = "Outsourced", hjust = "outward", 
-                      nudge_y = .0007),
-                  size = 4, color = "orange") +
+                      label = "Outsourced", hjust = "outward"),
+                  size = 5, color = "orange") +
         # Current
         geom_text(aes(x = TRUE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$trans_type == "trad_out"],
                       label = "Outsourced", hjust = "outward"), 
-                  size = 4, color = "dark green") +
+                  size = 5, color = "dark green") +
         geom_text(aes(x = TRUE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$trans_type == "trad_trad"],
                       label = "Traditional", hjust = "outward"), 
-                  size = 4, color = "blue") +
+                  size = 5, color = "blue") +
         geom_text(aes(x = TRUE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$trans_type == "out_out"],
                       label = "Outsourced", hjust = "outward"),
-                  size = 4, color = "red") +
+                  nudge_y = -.0005, size = 5, color = "red") +
         geom_text(aes(x = TRUE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$trans_type == "out_trad"],
                       label = "Traditional", hjust = "outward"),
-                  size = 4, color = "orange") +
+                  nudge_y = .0005, size = 5, color = "orange") +
+        labs(x = "Job", y = str_c(var_label[ind], " Residuals")) +
+        scale_color_manual(name = "Transition Type", 
+                           breaks = c("trad_trad", "trad_out",
+                                      "out_trad", "out_out"),
+                           values = c("blue", "dark green",
+                                      "orange", "red"),
+                           labels = c("Traditional-Traditional",
+                                      "Traditional-Outsourced",
+                                      "Outsourced-Traditional",
+                                      "Outsourced-Outsourced")) +
+        scale_x_discrete(breaks = c(FALSE, TRUE), 
+                         labels = c("Previous Job", "Current Job")) +
+        theme_light(base_size = 16) +
+        theme(legend.position = "none")
+      
+      ggsave(str_c(figure_folder, "Job Transition ", var_save[ind], " Residuals", 
+                   ho_save[ho], ".pdf"), height = height, width = width)
+    }
+    
+    # For LR Tot Comp
+    if (ind == 3 & ho == 1) {
+      temp <- temp_summary[[ho]] |>  
+        ggplot(aes(x = curr, y = residual, 
+                   color = trans_type, group = trans_type)) +
+        geom_line(show.legend = FALSE) +
+        # Include labels on all points 
+        # Previous
+        geom_text(aes(x = FALSE,
+                      y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==F & temp_summary[[ho]]$trans_type == "trad_out"],
+                      label = "Traditional", hjust = "outward"),
+                  size = 5, color = "dark green") +
+        geom_text(aes(x = FALSE,
+                      y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==F & temp_summary[[ho]]$trans_type == "trad_trad"],
+                      label = "Traditional", hjust = "outward"), 
+                  nudge_y = -.00075, size = 5, color = "blue") +
+        geom_text(aes(x = FALSE,
+                      y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==F & temp_summary[[ho]]$trans_type == "out_out"],
+                      label = "Outsourced", hjust = "outward"),
+                  size = 5, color = "red") +
+        geom_text(aes(x = FALSE,
+                      y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==F & temp_summary[[ho]]$trans_type == "out_trad"],
+                      label = "Outsourced", hjust = "outward"),
+                  nudge_y = .00075, size = 5, color = "orange") +
+        # Current
+        geom_text(aes(x = TRUE,
+                      y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$trans_type == "trad_out"],
+                      label = "Outsourced", hjust = "outward"), 
+                  size = 5, color = "dark green") +
+        geom_text(aes(x = TRUE,
+                      y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$trans_type == "trad_trad"],
+                      label = "Traditional", hjust = "outward"), 
+                  nudge_y = -.0009, size = 5, color = "blue") +
+        geom_text(aes(x = TRUE,
+                      y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$trans_type == "out_out"],
+                      label = "Outsourced", hjust = "outward"), 
+                  nudge_y = .0009, size = 5, color = "red") +
+        geom_text(aes(x = TRUE,
+                      y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$trans_type == "out_trad"],
+                      label = "Traditional", hjust = "outward"),
+                  size = 5, color = "orange") +
         labs(x = "Job", y = str_c(var_label[ind], " Residuals")) +
         scale_color_manual(name = "Transition Type", 
                            breaks = c("trad_trad", "trad_out",
@@ -966,36 +1088,36 @@ for (ind in seq_along(vars_reg)) {
         geom_text(aes(x = FALSE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==F & temp_summary[[ho]]$trans_type == "trad_out"],
                       label = "Traditional", hjust = "outward"), 
-                  size = 4, color = "dark green") +
+                  size = 5, color = "dark green") +
         geom_text(aes(x = FALSE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==F & temp_summary[[ho]]$trans_type == "trad_trad"],
                       label = "Traditional", hjust = "outward"), 
-                  size = 4, color = "blue") +
+                  size = 5, color = "blue") +
         geom_text(aes(x = FALSE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==F & temp_summary[[ho]]$trans_type == "out_out"],
                       label = "Outsourced", hjust = "outward"),
-                  size = 4, color = "red") +
+                  size = 5, color = "red") +
         geom_text(aes(x = FALSE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==F & temp_summary[[ho]]$trans_type == "out_trad"],
                       label = "Outsourced", hjust = "outward"),
-                  size = 4, color = "orange") +
+                  size = 5, color = "orange") +
         # Current
         geom_text(aes(x = TRUE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$trans_type == "trad_out"],
                       label = "Outsourced", hjust = "outward"), 
-                  size = 4, color = "dark green") +
+                  size = 5, color = "dark green") +
         geom_text(aes(x = TRUE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$trans_type == "trad_trad"],
                       label = "Traditional", hjust = "outward"), 
-                  size = 4, color = "blue") +
+                  size = 5, color = "blue") +
         geom_text(aes(x = TRUE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$trans_type == "out_out"],
                       label = "Outsourced", hjust = "outward"),
-                  size = 4, color = "red") +
+                  size = 5, color = "red") +
         geom_text(aes(x = TRUE,
                       y = temp_summary[[ho]]$residual[temp_summary[[ho]]$curr==T & temp_summary[[ho]]$trans_type == "out_trad"],
                       label = "Traditional", hjust = "outward"),
-                  size = 4, color = "orange") +
+                  size = 5, color = "orange") +
         labs(x = "Job", y = str_c(var_label[ind], " Residuals")) +
         scale_color_manual(name = "Transition Type", 
                            breaks = c("trad_trad", "trad_out",
@@ -1016,24 +1138,31 @@ for (ind in seq_along(vars_reg)) {
     }
   }
   
-  # Save the third data set with transition length denoted by
+  # Save the 3/4 data set with transition length/education denoted by
   # linetype
-  for (ho in c(3)) {
+  for (ho in c(3, 4)) {
+    
+    # These two are grouped together, so index is 1/2
+    j <- ho - 2
+    line <- sym(lines[j])
+    group <- sym(str_c(divs[j], "_trans_type"))
+    leg_name <- leg_names[j]
+    leg_label <- leg_labels[[j]]
+    
     temp <- temp_summary[[ho]] |>  
       ggplot(aes(x = curr, y = residual, 
                  color = trans_type, 
-                 linetype = factor(prev_curr_jj),
-                 group = jj_trans_type)) +
+                 linetype = factor(!!line),
+                 group = !!group)) +
       geom_line(show.legend = TRUE) +
       # Include labels on all points 
-      geom_text(aes(label = type, hjust = "outward"), size = 4, 
+      geom_text(aes(label = type, hjust = "outward"), size = 5, 
                 check_overlap = TRUE) +
       labs(x = "Job", y = str_c(var_label[ind], " Residuals")) +
       scale_linetype_manual(
-        name = "Transition Length",
+        name = leg_name,
         breaks = c(1, 0), values = c("solid", "dashed"),
-        labels = c("Job-to-Job (1 Week)",
-                   "Unemployment ($>$1 Week)")) +
+        labels = leg_label) +
       scale_color_manual(name = "Transition Type", 
                          breaks = c("trad_trad", "trad_out",
                                     "out_trad", "out_out"),
@@ -1089,11 +1218,11 @@ table <- str_c(
 name <- "Mean Weeks to Find Job by Current Job Type"
 label <- "weeks_find_job"
 note <- "
-Mean weeks to find current job for workers in high outsourcing
+Mean weeks to find current job for workers in high-outsourcing
 occupations. Time between jobs is averaged both for all transitions 
 and for transitions that last longer than 1 week. 
 Stars represent significant difference from outsourced jobs at 
-the .10 level *, .05 level **, and .01 level ***."
+the .10 level (*), .05 level (**), and .01 level (***)."
 
 header <- make_header("", name, label)
 bot <- make_bot(note)
@@ -1221,12 +1350,6 @@ for (ho in 1:2) {
 # ggsave(str_c(figure_folder, "Weeks To Job Data vs Model.pdf"),
 #        height = height, width = width)
 
-# Separate Job-Job Transitions --------------------------------------------
-
-# Try to estimate how many workers go from job-job transitions.
-# For now, assume all 1 week job gaps are job-job transitions 
-# (marked as jj)
-
 
 # Regression on Weeks to Jobs ---------------------------------------------
 
@@ -1262,8 +1385,8 @@ tenure_controls <- c(
   "I((tenure_prev / 100)^3)", "I((tenure_prev / 100)^4)")
 
 # OLS controls
-ols_controls <- c("black", "hispanic", "hs_curr", 
-                  "aa_curr", "ba_curr", "plus_ba_curr")
+ols_controls <- c("black", "hispanic", "less_hs", "hs", 
+                  "aa", "ba", "plus_ba")
 
 # Fixed Effects for all regressions
 fixed_effects <- c("region_curr", "marital_status_curr", "msa_curr", 
@@ -1297,7 +1420,7 @@ labels <- c("_weeks_between_jobs", "_weeks_between_jobs_g1",
             "_job_to_job")
 descriptions <- c("weeks to find current job", 
                   "weeks to find current job (>1 week)",
-                  "probability of job to job transition")
+                  "probability of job-to-job transition")
 
 c_s <- c()
 
@@ -1442,10 +1565,10 @@ for (k in 1:length(vars)) {
     health insurance, retirement benefits, or any benefits. 
     They also contain a quartic of previous tenure. 
     All observations are at 
-    the person-job level and regressions are weighted at the 
+    the person-job level, and regressions are weighted at the 
     person level. All standard errors are clustered by 
     demographic sampling group. Stars represent significance 
-    at the .10 level *, .05 level **, and .01 level ***.
+    at the .10 level (*), .05 level (**), and .01 level (***).
     "
   )
   
@@ -1464,7 +1587,7 @@ s_center <- center |>
   cbind(c_s) |>
   add_endline() 
 
-# Remove Job Quality line
+# Remove Job Quality lines
 s_center <- s_center[-5:-7, ]
   
 s_center <- center_to_latex(s_center)
@@ -1474,18 +1597,17 @@ label <- "reg_transition_comp"
 note <- "
 Regressions of outsourced at current and previous job on weeks to 
 find current job (both overall and conditional on the transition 
-taking more than one week) and probability of job to job transition
+taking more than one week) and probability of job-to-job transition
 in the NLSY. Each regression contains current and previous job 
 variables: job type (reported coefficients are compared to 
-traditional jobs), and fixed effects for occupation. 
-It also contains a dummy for year current job began. 
-They contain the following
+traditional jobs) and fixed effects for occupation. 
+Regressions contain a dummy for year current job began, and the following
 demographic variables: a quartic in age, dummies for region, 
 whether in an MSA or central city, and marital status.
-All observations are at the person-job level and regressions 
+All observations are at the person-job level, and regressions 
 are weighted at the person level. All standard errors are 
 clustered by demographic sampling group. Stars represent 
-significance at the .10 level *, .05 level **, and .01 level ***.
+significance at the .10 level (*), .05 level (**), and .01 level (***).
 "
 
 # Save to Drafts and Slides
@@ -1502,15 +1624,216 @@ write.table(str_c(s_header, s_top, s_center, s_bot),
             str_c(s_table_folder, "Job Transition Regressions.tex"),
             quote=F, col.names=F, row.names=F, sep="")
 
+
+# Education Regression on Weeks to Job ------------------------------------
+
+# Run the "standard" (worker + OCC fixed-effects, no job quality)
+# Regressions but separate effects by education
+# Do both Bachelor's vs None and Full breakdown
+
+# Education Level
+educ_levels <- c("less_hs", "hs", "aa", "ba", "plus_ba",
+                 "educ_other")
+
+# Combine types and education levels
+educ_type <- str_c("I(", rep(add_suffix(types, c("curr", "prev")), each = 6),
+                   " * ", rep(educ_levels, times = 10), ")")
+
+educ_hl <- 
+  c(str_c("I(", add_suffix(types, c("curr", "prev")), " * ",
+          rep("(1 - high_ed)", times=5), ")"),
+    str_c("I(", add_suffix(types, c("curr", "prev")), " * ",
+          rep("high_ed", times=5), ")"))
+
+center_ed <- rbind("Less High School $\\times$", "Outsourced Current",
+                   "High School $\\times$", "Outsourced Current",
+                   "Associate's Degree $\\times$", "Outsourced Current",
+                   "Bachelor's Degree $\\times$", "Outsourced Current",
+                   "Postgraduate Degree $\\times$", "Outsourced Current",
+                   "Less High School $\\times$", "Outsourced Previous",
+                   "High School $\\times$", "Outsourced Previous",
+                   "Associate's Degree $\\times$", "Outsourced Previous",
+                   "Bachelor's Degree $\\times$", "Outsourced Previous",
+                   "Postgraduate Degree $\\times$", "Outsourced Previous",
+                   "$R^2$", "Obs")
+
+center_hl <- c("No Bachelor's $\\times$", "Outsourced Current",
+               "Bachelor's $\\times$", "Outsourced Current",
+               "No Bachelor's $\\times$", "Outsourced Previous",
+               "Bachelor's $\\times$", "Outsourced Previous",
+               "$R^2$", "Observations")
+
+controls <- c(dem_controls, educ_type)
+controls_hl <- c(dem_controls, educ_hl)
+fes <- c(fixed_effects, id_effects, occ_effects)
+
+for (k in 1:length(vars)) {
+  
+  var <- vars[k]
+  save <- var_save[k]
+  lab <- labels[k]
+  desc <- descriptions[k]
+  
+  eq <- create_formula(var, controls)
+  eq_hl <- create_formula(var, controls_hl)
+  fe <- create_formula("", fes)
+  
+  temp <- lm_robust(
+    eq, data = transition, 
+    subset = (!is.na(marital_status_curr)
+              & !is.na(msa_curr) & !is.na(occ_curr) 
+              & !is.na(occ_prev)),
+    weights = weight,
+    fixed_effects = !!fe,
+    clusters = as_factor(sample_id),
+    se_type = "stata", try_cholesky = T)
+  
+  center_ed <- cbind(
+    center_ed,
+    rbind(
+      format_val(temp$coefficients[educ_type[1]], r=3, s=3,
+                 star=p_stars(temp$p.value[educ_type[1]])),
+      format_se(temp$std.error[educ_type[1]], r=3, s=3),
+      format_val(temp$coefficients[educ_type[2]], r=3, s=3,
+                 star=p_stars(temp$p.value[educ_type[2]])),
+      format_se(temp$std.error[educ_type[2]], r=3, s=3),
+      format_val(temp$coefficients[educ_type[3]], r=3, s=3,
+                 star=p_stars(temp$p.value[educ_type[3]])),
+      format_se(temp$std.error[educ_type[3]], r=3, s=3),
+      format_val(temp$coefficients[educ_type[4]], r=3, s=3,
+                 star=p_stars(temp$p.value[educ_type[4]])),
+      format_se(temp$std.error[educ_type[4]], r=3, s=3),
+      format_val(temp$coefficients[educ_type[5]], r=3, s=3,
+                 star=p_stars(temp$p.value[educ_type[5]])),
+      format_se(temp$std.error[educ_type[5]], r=3, s=3),
+      format_val(temp$coefficients[educ_type[7]], r=3, s=3,
+                 star=p_stars(temp$p.value[educ_type[7]])),
+      format_se(temp$std.error[educ_type[7]], r=3, s=3),
+      format_val(temp$coefficients[educ_type[8]], r=3, s=3,
+                 star=p_stars(temp$p.value[educ_type[8]])),
+      format_se(temp$std.error[educ_type[8]], r=3, s=3),
+      format_val(temp$coefficients[educ_type[9]], r=3, s=3,
+                 star=p_stars(temp$p.value[educ_type[9]])),
+      format_se(temp$std.error[educ_type[9]], r=3, s=3),
+      format_val(temp$coefficients[educ_type[10]], r=3, s=3,
+                 star=p_stars(temp$p.value[educ_type[10]])),
+      format_se(temp$std.error[educ_type[10]], r=3, s=3),
+      format_val(temp$coefficients[educ_type[11]], r=3, s=3,
+                 star=p_stars(temp$p.value[educ_type[11]])),
+      format_se(temp$std.error[educ_type[11]], r=3, s=3),
+      format_val(temp$r.squared), format_n(lm_N(temp)))
+  )
+  
+  temp <- lm_robust(
+    eq_hl, data = transition, 
+    subset = (!is.na(marital_status_curr)
+              & !is.na(msa_curr) & !is.na(occ_curr) 
+              & !is.na(occ_prev)),
+    weights = weight,
+    fixed_effects = !!fe,
+    clusters = as_factor(sample_id),
+    se_type = "stata", try_cholesky = T)
+  
+  center_hl <- cbind(
+    center_hl,
+    rbind(
+      format_val(temp$coefficients[educ_hl[1]], r=3, s=3,
+                 star=p_stars(temp$p.value[educ_hl[1]])),
+      format_se(temp$std.error[educ_hl[1]], r=3, s=3),
+      format_val(temp$coefficients[educ_hl[11]], r=3, s=3,
+                 star=p_stars(temp$p.value[educ_hl[11]])),
+      format_se(temp$std.error[educ_hl[11]], r=3, s=3),
+      format_val(temp$coefficients[educ_hl[2]], r=3, s=3,
+                 star=p_stars(temp$p.value[educ_hl[2]])),
+      format_se(temp$std.error[educ_hl[2]], r=3, s=3),
+      format_val(temp$coefficients[educ_hl[12]], r=3, s=3,
+                 star=p_stars(temp$p.value[educ_hl[12]])),
+      format_se(temp$std.error[educ_hl[12]], r=3, s=3),
+      format_val(temp$r.squared), format_n(lm_N(temp)))
+  )
+}
+
+center_ed <- center_ed |>
+  add_endline() |>
+  center_to_latex()
+
+center_hl <- center_hl |>
+  add_endline() |>
+  center_to_latex()
+
+name <- "Weeks to Find Current Job by Education"
+label <- "reg_transition_comp_ed"
+note <- "
+Regressions of outsourced at current and previous job interacted
+with education on weeks to 
+find current job (both overall and conditional on the transition 
+taking more than one week) and probability of job-to-job transition
+in the NLSY. Each regression contains current and previous job 
+variables: job type (reported coefficients are compared to 
+traditional jobs) interacted with education and fixed effects for occupation. 
+Regressions contain a dummy for year current job began, and the following
+demographic variables: a quartic in age, dummies for region, 
+whether in an MSA or central city, and marital status.
+All observations are at the person-job level, and regressions 
+are weighted at the person level. All standard errors are 
+clustered by demographic sampling group. Stars represent 
+significance at the .10 level (*), .05 level (**), and .01 level (***).
+"
+
+# Save to Drafts and Slides
+d_header_ed <- make_header("d", name, label)
+s_header_ed <- make_header("s")
+
+bot_ed <- make_bot(note)
+
+write.table(str_c(d_header_ed, s_top, center_ed, bot_ed),
+            str_c(d_table_folder, "Job Transition Regressions Education.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+write.table(str_c(s_header_ed, s_top, center_ed, s_bot),
+            str_c(s_table_folder, "Job Transition Regressions Education.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+name <- "Weeks to Find Current Job by Bachelor's Degree Attainment"
+label <- "reg_transition_comp_hl"
+note <- "
+Regressions of outsourced at current and previous job interacted
+with bachelor's degree attainment on weeks to 
+find current job (both overall and conditional on the transition 
+taking more than one week) and probability of job-to-job transition
+in the NLSY. Each regression contains current and previous job 
+variables: job type (reported coefficients are compared to 
+traditional jobs) interacted with bachelor's attainment
+and fixed effects for occupation. 
+Regressions contain a dummy for year current job began, and the following
+demographic variables: a quartic in age, dummies for region, 
+whether in an MSA or central city, and marital status.
+All observations are at the person-job level, and regressions 
+are weighted at the person level. All standard errors are 
+clustered by demographic sampling group. Stars represent 
+significance at the .10 level (*), .05 level (**), and .01 level (***).
+"
+
+# Save to Drafts and Slides
+d_header_ed <- make_header("d", name, label)
+s_header_ed <- make_header("s")
+
+bot_ed <- make_bot(note)
+
+write.table(str_c(d_header_ed, s_top, center_hl, bot_ed),
+            str_c(d_table_folder, "Job Transition Regressions Education HL.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+write.table(str_c(s_header_ed, s_top, center_hl, s_bot),
+            str_c(s_table_folder, "Job Transition Regressions Education HL.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
 # Regressions of Past Job Type on Outcomes --------------------------------
 
 # Run full regression (see matched analysis) but replace current job 
 # type with previous job type
-
-var_r <- c("log_real_hrly_wage", "log_real_wkly_wage",
-           "hours_week", "part_time", "any_benefits",
-           "health")
-
+# Also do this with education interactions
+# (both bachelor's vs not and all categories)
 types <- c("outsourced", "self_emp", "indep_con", 
            "temp_work", "on_call")
 
@@ -1522,37 +1845,113 @@ tenure <- c("I((tenure_curr/100))", "I((tenure_curr/100)^2)",
 
 fixed_effects <- c("region", "marital_status", "msa")
 
-top <- "
-\\begin{tabular}{lSSSSSS}
+ind_vars <- c(controls, tenure)
+fe_vars <- c(str_c(fixed_effects, "_curr"), 
+             "case_id", "occ_curr",
+             "I(year(week_start_job_curr))", 
+             "I(year(week_end_job_curr))")
+
+ind_vars_curr <- c(str_c(types, "_curr"), ind_vars)
+ind_vars_prev <- c(str_c(types, "_prev"), ind_vars)
+
+ind_vars_ed_curr <- c(
+  str_c("I(", rep(add_suffix(types, c("curr")), each=6),
+        " * ", rep(educ_levels, times = 5), ")"), ind_vars)
+ind_vars_ed_prev <- c(
+  str_c("I(", rep(add_suffix(types, c("prev")), each=6),
+        " * ", rep(educ_levels, times = 5), ")"), ind_vars)
+
+ind_vars_hl_curr <- 
+  c(str_c("I(", add_suffix(types, c("curr")), " * ",
+          rep("(1 - high_ed)", times=5), ")"),
+    str_c("I(", add_suffix(types, c("curr")), " * ",
+          rep("high_ed", times=5), ")"), ind_vars)
+ind_vars_hl_prev <- 
+  c(str_c("I(", add_suffix(types, c("prev")), " * ",
+          rep("(1 - high_ed)", times=5), ")"),
+    str_c("I(", add_suffix(types, c("prev")), " * ",
+          rep("high_ed", times=5), ")"), ind_vars)
+
+var_1 <- c("log_real_wkly_wage", "health", "retirement", "log_real_tot_comp")
+top_1 <- "
+\\begin{tabular}{lSSSS}
 \\toprule
-& {Log Real} &  {Log Real} & {Hours Worked} & {} & {Any} & {Health} \\\\
-& {Hourly Wages} & {Weekly Wages}  & {Per Week}  & {Part-Time} & {Benefits} & {Insurance}  \\\\\\midrule
+&  {Log Real} & {Health} & {Retirement} & {Log Real} \\\\
+& {Weekly Wages} & {Insurance\\tnote{a}} & {Plan\\tnote{a}} & {Total Compensation\\tnote{b}}  \\\\\\midrule
+"
+top_1_s <- "
+\\begin{tabular}{lSSSS}
+\\toprule
+&  {Log Real} & {Health} & {Retirement} & {Log Real} \\\\
+& {Weekly Wages} & {Insurance} & {Plan} & {Total Compensation}  \\\\\\midrule
 "
 
-center_c <- c("Outsourced Currently", "", "$R^2$", "Observations")
-center_p <- c("Outsourced Previously", "", "$R^2$", "Observations")
+var_2 <- c("log_real_hrly_wage", "hours_week",
+           "part_time", "any_benefits")
+top_2 <- "
+\\begin{tabular}{lSSSSSS}
+\\toprule
+& {Log Real} & {Hours Worked} & {} & {Any} \\\\
+& {Hourly Wages} &  {Per Week}  & {Part-Time} & {Benefits\\tnote{a}}  \\\\\\midrule
+"
+top_2_s <- "
+\\begin{tabular}{lSSSSSS}
+\\toprule
+& {Log Real} & {Hours Worked} & {} & {Any} \\\\
+& {Hourly Wages} &  {Per Week}  & {Part-Time} & {Benefits}  \\\\\\midrule
+"
 
-c_curr <- c()
-c_prev <- c()
+var_r <- c(var_1, var_2)
+
+center_c <- c("Outsourced", "Current", "$R^2$", "Observations")
+center_p <- c("Outsourced", "Previous", "$R^2$", "Observations")
+
+center_c_ed <- c("Less High School $\\times$", "Outsourced Current",
+                 "High School $\\times$", "Outsourced Current",
+                 "Associate's Degree $\\times$", "Outsourced Current",
+                 "Bachelor's Degree $\\times$", "Outsourced Current",
+                 "Postgraduate Degree $\\times$", "Outsourced Current",
+                 "$R^2$", "Observations")
+
+center_p_ed <- c("Less High School $\\times$", "Outsourced Previous",
+                 "High School $\\times$", "Outsourced Previous",
+                 "Associate's Degree $\\times$", "Outsourced Previous",
+                 "Bachelor's Degree $\\times$", "Outsourced Previous",
+                 "Postgraduate Degree $\\times$", "Outsourced Previous",
+                 "$R^2$", "Observations")
+
+center_c_hl <- c("No Bachelor's $\\times$", "Outsourced Current",
+                 "Bachelor's $\\times$", "Outsourced Current",
+                 "$R^2$", "Observations")
+
+center_p_hl <- c("No Bachelor's $\\times$", "Outsourced Previous",
+                 "Bachelor's $\\times$", "Outsourced Previous",
+                 "$R^2$", "Observations")
+
+c_curr_1 <- c()
+c_prev_1 <- c()
+c_curr_ed_1 <- c()
+c_prev_ed_1 <- c()
+c_curr_hl_1 <- c()
+c_prev_hl_1 <- c()
+c_curr_2 <- c()
+c_prev_2 <- c()
+c_curr_ed_2 <- c()
+c_prev_ed_2 <- c()
+c_curr_hl_2 <- c()
+c_prev_hl_2 <- c()
 
 for (ind in seq_along(var_r)) {
+  
   var <- var_r[ind]
   
-  ind_vars <- c(controls, tenure)
-  fe_vars <- c(str_c(fixed_effects, "_curr"), 
-               "case_id", "occ_curr",
-               "I(year(week_start_job_curr))", 
-               "I(year(week_end_job_curr))")
-  
   # Run equation using both current and previous job type
-  ind_vars_curr <- c(str_c(types, "_curr"), ind_vars)
-  ind_vars_prev <- c(str_c(types, "_prev"), ind_vars)
   
   eq_curr <- create_formula(str_c(var, "_curr"), ind_vars_curr)
   eq_prev <- create_formula(str_c(var, "_curr"), ind_vars_prev)
   fe <- create_formula("", fe_vars)
   
-  # Run regression both for matched and matched_jobs
+  # Run regressions
   temp_curr <- 
     lm_robust(eq_curr, data = transition, 
               weights = weight,
@@ -1565,17 +1964,7 @@ for (ind in seq_along(var_r)) {
               clusters = as_factor(sample_id),
               se_type = "stata", try_cholesky = T)
   
-  stars <- p_stars(temp_curr$p.value["outsourced_curr"])
-  
-  c_curr <- cbind(
-    c_curr,
-    rbind(format_val(temp_curr$coefficients["outsourced_curr"],
-                     r=3, s=3, star = stars),
-          format_se(temp_curr$std.error["outsourced_curr"],
-                    r=3, s=3),
-          format_val(temp_curr$r.squared), 
-          format_n(lm_N(temp_curr)))
-  )
+  stars_c <- p_stars(temp_curr$p.value["outsourced_curr"])
   
   temp_prev <- 
     lm_robust(eq_prev, data = transition, weights = weight,
@@ -1588,33 +1977,274 @@ for (ind in seq_along(var_r)) {
               clusters = as_factor(sample_id),
               se_type = "stata", try_cholesky = T)
   
-  stars <- p_stars(temp_prev$p.value["outsourced_prev"])
+  stars_p <- p_stars(temp_prev$p.value["outsourced_prev"])
   
-  c_prev <- cbind(
-    c_prev,
-    rbind(format_val(temp_prev$coefficients["outsourced_prev"], 
-                     r=3, s=3, star = stars),
-          format_se(temp_prev$std.error["outsourced_prev"],
-                    r=3, s=3),
-          format_val(temp_prev$r.squared),
-          format_n(lm_N(temp_prev)))
+  if (var_r[ind] %in% var_1) {
+    c_curr_1 <- cbind(
+      c_curr_1,
+      rbind(format_val(temp_curr$coefficients["outsourced_curr"],
+                       r=3, s=3, star = stars_c),
+            format_se(temp_curr$std.error["outsourced_curr"],
+                      r=3, s=3),
+            format_val(temp_curr$r.squared), 
+            format_n(lm_N(temp_curr)))
     )
+    
+    c_prev_1 <- cbind(
+      c_prev_1,
+      rbind(format_val(temp_prev$coefficients["outsourced_prev"], 
+                       r=3, s=3, star = stars_p),
+            format_se(temp_prev$std.error["outsourced_prev"],
+                      r=3, s=3),
+            format_val(temp_prev$r.squared),
+            format_n(lm_N(temp_prev)))
+    )
+  } else {
+    c_curr_2 <- cbind(
+      c_curr_2,
+      rbind(format_val(temp_curr$coefficients["outsourced_curr"],
+                       r=3, s=3, star = stars_c),
+            format_se(temp_curr$std.error["outsourced_curr"],
+                      r=3, s=3),
+            format_val(temp_curr$r.squared), 
+            format_n(lm_N(temp_curr)))
+    )
+    
+    c_prev_2 <- cbind(
+      c_prev_2,
+      rbind(format_val(temp_prev$coefficients["outsourced_prev"], 
+                       r=3, s=3, star = stars_p),
+            format_se(temp_prev$std.error["outsourced_prev"],
+                      r=3, s=3),
+            format_val(temp_prev$r.squared),
+            format_n(lm_N(temp_prev)))
+    )
+  }
+  
+  # Also do this interacting with education
+  eq_curr <- create_formula(str_c(var, "_curr"), ind_vars_ed_curr)
+  eq_prev <- create_formula(str_c(var, "_curr"), ind_vars_ed_prev)
+  fe <- create_formula("", fe_vars)
+  
+  # Run regressions
+  temp_curr <- 
+    lm_robust(eq_curr, data = transition, 
+              weights = weight,
+              subset = !is.na(region_curr) 
+              & !is.na(marital_status_curr)
+              & !is.na(msa_curr) & !is.na(occ_curr) 
+              & !is.na(outsourced_curr)
+              & !is.na(outsourced_prev) & (emp_id_curr >= 100),
+              fixed_effects = !!fe,
+              clusters = as_factor(sample_id),
+              se_type = "stata", try_cholesky = T)
+  
+  temp_prev <- 
+    lm_robust(eq_prev, data = transition, weights = weight,
+              subset = !is.na(region_curr) 
+              & !is.na(marital_status_curr)
+              & !is.na(msa_curr) & !is.na(occ_curr) 
+              & !is.na(outsourced_curr)
+              & !is.na(outsourced_prev) & (emp_id_curr >= 100),
+              fixed_effects = !!fe,
+              clusters = as_factor(sample_id),
+              se_type = "stata", try_cholesky = T)
+  
+  if (var_r[ind] %in% var_1) {
+    
+    c_curr_ed_1 <- cbind(
+      c_curr_ed_1,
+      rbind(format_val(temp_curr$coefficients[educ_type[1]], r=3, s=3,
+                       star=p_stars(temp_curr$p.value[educ_type[1]])),
+            format_se(temp_curr$std.error[educ_type[1]], r=3, s=3),
+            format_val(temp_curr$coefficients[educ_type[2]], r=3, s=3,
+                       star=p_stars(temp_curr$p.value[educ_type[2]])),
+            format_se(temp_curr$std.error[educ_type[2]], r=3, s=3),
+            format_val(temp_curr$coefficients[educ_type[3]], r=3, s=3,
+                       star=p_stars(temp_curr$p.value[educ_type[3]])),
+            format_se(temp_curr$std.error[educ_type[3]], r=3, s=3),
+            format_val(temp_curr$coefficients[educ_type[4]], r=3, s=3,
+                       star=p_stars(temp_curr$p.value[educ_type[4]])),
+            format_se(temp_curr$std.error[educ_type[4]], r=3, s=3),
+            format_val(temp_curr$coefficients[educ_type[5]], r=3, s=3,
+                       star=p_stars(temp_curr$p.value[educ_type[5]])),
+            format_se(temp_curr$std.error[educ_type[5]], r=3, s=3),
+            format_val(temp_curr$r.squared), 
+            format_n(lm_N(temp_curr)))
+    )
+    
+    c_prev_ed_1 <- cbind(
+      c_prev_ed_1,
+      rbind(format_val(temp_prev$coefficients[educ_type[7]], r=3, s=3,
+                       star=p_stars(temp_prev$p.value[educ_type[7]])),
+            format_se(temp_prev$std.error[educ_type[7]], r=3, s=3),
+            format_val(temp_prev$coefficients[educ_type[8]], r=3, s=3,
+                       star=p_stars(temp_prev$p.value[educ_type[8]])),
+            format_se(temp_prev$std.error[educ_type[8]], r=3, s=3),
+            format_val(temp_prev$coefficients[educ_type[9]], r=3, s=3,
+                       star=p_stars(temp_prev$p.value[educ_type[9]])),
+            format_se(temp_prev$std.error[educ_type[9]], r=3, s=3),
+            format_val(temp_prev$coefficients[educ_type[10]], r=3, s=3,
+                       star=p_stars(temp_prev$p.value[educ_type[10]])),
+            format_se(temp_prev$std.error[educ_type[10]], r=3, s=3),
+            format_val(temp_prev$coefficients[educ_type[11]], r=3, s=3,
+                       star=p_stars(temp_prev$p.value[educ_type[11]])),
+            format_se(temp_prev$std.error[educ_type[11]], r=3, s=3),
+            format_val(temp_prev$r.squared),
+            format_n(lm_N(temp_prev)))
+    )
+  } else {
+    
+    c_curr_ed_2 <- cbind(
+      c_curr_ed_2,
+      rbind(format_val(temp_curr$coefficients[educ_type[1]], r=3, s=3,
+                       star=p_stars(temp_curr$p.value[educ_type[1]])),
+            format_se(temp_curr$std.error[educ_type[1]], r=3, s=3),
+            format_val(temp_curr$coefficients[educ_type[2]], r=3, s=3,
+                       star=p_stars(temp_curr$p.value[educ_type[2]])),
+            format_se(temp_curr$std.error[educ_type[2]], r=3, s=3),
+            format_val(temp_curr$coefficients[educ_type[3]], r=3, s=3,
+                       star=p_stars(temp_curr$p.value[educ_type[3]])),
+            format_se(temp_curr$std.error[educ_type[3]], r=3, s=3),
+            format_val(temp_curr$coefficients[educ_type[4]], r=3, s=3,
+                       star=p_stars(temp_curr$p.value[educ_type[4]])),
+            format_se(temp_curr$std.error[educ_type[4]], r=3, s=3),
+            format_val(temp_curr$coefficients[educ_type[5]], r=3, s=3,
+                       star=p_stars(temp_curr$p.value[educ_type[5]])),
+            format_se(temp_curr$std.error[educ_type[5]], r=3, s=3),
+            format_val(temp_curr$r.squared), 
+            format_n(lm_N(temp_curr)))
+    )
+    
+    c_prev_ed_2 <- cbind(
+      c_prev_ed_2,
+      rbind(format_val(temp_prev$coefficients[educ_type[7]], r=3, s=3,
+                       star=p_stars(temp_prev$p.value[educ_type[7]])),
+            format_se(temp_prev$std.error[educ_type[7]], r=3, s=3),
+            format_val(temp_prev$coefficients[educ_type[8]], r=3, s=3,
+                       star=p_stars(temp_prev$p.value[educ_type[8]])),
+            format_se(temp_prev$std.error[educ_type[8]], r=3, s=3),
+            format_val(temp_prev$coefficients[educ_type[9]], r=3, s=3,
+                       star=p_stars(temp_prev$p.value[educ_type[9]])),
+            format_se(temp_prev$std.error[educ_type[9]], r=3, s=3),
+            format_val(temp_prev$coefficients[educ_type[10]], r=3, s=3,
+                       star=p_stars(temp_prev$p.value[educ_type[10]])),
+            format_se(temp_prev$std.error[educ_type[10]], r=3, s=3),
+            format_val(temp_prev$coefficients[educ_type[11]], r=3, s=3,
+                       star=p_stars(temp_prev$p.value[educ_type[11]])),
+            format_se(temp_prev$std.error[educ_type[11]], r=3, s=3),
+            format_val(temp_prev$r.squared),
+            format_n(lm_N(temp_prev)))
+    )
+  }
+  
+  # Also do this interacting with bachelors
+  eq_curr <- create_formula(str_c(var, "_curr"), ind_vars_hl_curr)
+  eq_prev <- create_formula(str_c(var, "_curr"), ind_vars_hl_prev)
+  fe <- create_formula("", fe_vars)
+    
+  # Run regressions
+  temp_curr <- 
+    lm_robust(eq_curr, data = transition, 
+              weights = weight,
+              subset = !is.na(region_curr) 
+              & !is.na(marital_status_curr)
+              & !is.na(msa_curr) & !is.na(occ_curr) 
+              & !is.na(outsourced_curr)
+              & !is.na(outsourced_prev) & (emp_id_curr >= 100),
+              fixed_effects = !!fe,
+              clusters = as_factor(sample_id),
+              se_type = "stata", try_cholesky = T)
+  
+  temp_prev <- 
+    lm_robust(eq_prev, data = transition, weights = weight,
+              subset = !is.na(region_curr) 
+              & !is.na(marital_status_curr)
+              & !is.na(msa_curr) & !is.na(occ_curr) 
+              & !is.na(outsourced_curr)
+              & !is.na(outsourced_prev) & (emp_id_curr >= 100),
+              fixed_effects = !!fe,
+              clusters = as_factor(sample_id),
+              se_type = "stata", try_cholesky = T)
+  
+  if (var_r[ind] %in% var_1) {
+    
+    c_curr_hl_1 <- cbind(
+      c_curr_hl_1,
+      rbind(format_val(temp_curr$coefficients[educ_hl[1]], r=3, s=3,
+                       star=p_stars(temp_curr$p.value[educ_hl[1]])),
+            format_se(temp_curr$std.error[educ_hl[1]], r=3, s=3),
+            format_val(temp_curr$coefficients[educ_hl[11]], r=3, s=3,
+                       star=p_stars(temp_curr$p.value[educ_hl[11]])),
+            format_se(temp_curr$std.error[educ_hl[11]], r=3, s=3),
+            format_val(temp_curr$r.squared), 
+            format_n(lm_N(temp_curr)))
+    )
+    
+    c_prev_hl_1 <- cbind(
+      c_prev_hl_1,
+      rbind(format_val(temp_prev$coefficients[educ_hl[2]], r=3, s=3,
+                       star=p_stars(temp_prev$p.value[educ_hl[2]])),
+            format_se(temp_prev$std.error[educ_hl[2]], r=3, s=3),
+            format_val(temp_prev$coefficients[educ_hl[12]], r=3, s=3,
+                       star=p_stars(temp_prev$p.value[educ_hl[12]])),
+            format_se(temp_prev$std.error[educ_hl[12]], r=3, s=3),
+            format_val(temp_prev$r.squared),
+            format_n(lm_N(temp_prev)))
+    )
+  } else {
+    
+    c_curr_hl_2 <- cbind(
+      c_curr_hl_2,
+      rbind(format_val(temp_curr$coefficients[educ_hl[1]], r=3, s=3,
+                       star=p_stars(temp_curr$p.value[educ_hl[1]])),
+            format_se(temp_curr$std.error[educ_hl[1]], r=3, s=3),
+            format_val(temp_curr$coefficients[educ_hl[11]], r=3, s=3,
+                       star=p_stars(temp_curr$p.value[educ_hl[11]])),
+            format_se(temp_curr$std.error[educ_hl[11]], r=3, s=3),
+            format_val(temp_curr$r.squared), 
+            format_n(lm_N(temp_curr)))
+    )
+    
+    c_prev_hl_2 <- cbind(
+      c_prev_hl_2,
+      rbind(format_val(temp_prev$coefficients[educ_hl[2]], r=3, s=3,
+                       star=p_stars(temp_prev$p.value[educ_hl[2]])),
+            format_se(temp_prev$std.error[educ_hl[2]], r=3, s=3),
+            format_val(temp_prev$coefficients[educ_hl[12]], r=3, s=3,
+                       star=p_stars(temp_prev$p.value[educ_hl[12]])),
+            format_se(temp_prev$std.error[educ_hl[12]], r=3, s=3),
+            format_val(temp_prev$r.squared),
+            format_n(lm_N(temp_prev)))
+    )
+  }
 }
 
-center_c <- center_c |>
-  cbind(c_curr)
+center_c_1 <- center_c |>
+  cbind(c_curr_1)
 
-center_p <- center_p |>
-  cbind(c_prev)
+center_p_1 <- center_p |>
+  cbind(c_prev_1)
 
-center <- center_c |>
-  rbind(center_p) |>
+center_1 <- center_c_1 |>
+  rbind(center_p_1) |>
   add_endline(midrule = c(4)) |>
   center_to_latex()
 
-name <- "Effect of Previous Job Type on Current Job Quality"
-label <- "regs_curr_prev"
-note <- "
+center_c_2 <- center_c |>
+  cbind(c_curr_2)
+
+center_p_2 <- center_p |>
+  cbind(c_prev_2)
+
+center_2 <- center_c_2 |>
+  rbind(center_p_2) |>
+  add_endline(midrule = c(4)) |>
+  center_to_latex()
+
+name_1 <- "Effect of Previous Job Type on Current Job Quality"
+label_1 <- "regs_curr_prev"
+note_1 <- "
 Regressions of worker outsourcing status on job outcomes in the NLSY.
 All regressions include controls for job type (traditional job 
 is default) in current (top regressions) or previous 
@@ -1624,33 +2254,319 @@ year started and ended job, union status, dummies for region,
 whether in an MSA or central city, and marital status. 
 All observations are at the person-job level, where jobs observed 
 more than once use average or modal characteristics. 
-All regressions are weighted at the person level and 
+All regressions are weighted at the person level, and 
 all standard errors are clustered by demographic sample.
-Stars represent significance at the .10 level *, .05 level **, 
-and .01 level ***.
+Stars represent significance at the .10 level (*), .05 level (**), 
+and .01 level (***).
+\\item[a] Benefits measure if worker reports access to
+benefit through employer.
+\\item[b] Log real total compensation imputed using year,
+occupation, log real weekly wage, access to health insurance
+and retirement benefits.
 "
 
-header <- make_header("", name, label, colsep = 1.5)
-d_header <- make_header("d", name, label, colsep = 1.5)
+header_1 <- make_header("", name_1, label_1, colsep = 1.5)
+d_header_1 <- make_header("d", name_1, label_1, colsep = 1.5)
 s_header <- make_header("s", colsep = 0.5)
 
-bot <- make_bot(note)
+bot_1 <- make_bot(note_1)
 
-# Save to Folder and Drafts
+# Save to Folder
 write.table(
-  str_c(header, top, center, bot, "\n \\end{document}"), 
+  str_c(header_1, top_1, center_1, bot_1, "\n \\end{document}"), 
   str_c(table_folder, 
         "NLSY79 Job Transitions/Current and Previous Outsourced Regressions.tex"),
   quote=F, col.names=F, row.names=F, sep="")
 
 # Drafts
-write.table(str_c(d_header, top, center, bot),
+write.table(str_c(d_header_1, top_1, center_1, bot_1),
             str_c(d_table_folder, 
                   "Current and Previous Outsourced Regressions.tex"),
             quote=F, col.names=F, row.names=F, sep="")
 
 # Slides
-write.table(str_c(s_header, top, center, s_bot),
+write.table(str_c(s_header, top_1_s, center_1, s_bot),
             str_c(s_table_folder, 
                   "Current and Previous Outsourced Regressions.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+name_2 <- "Effect of Previous Job Type on Current Job Quality: Alternative Measures"
+label_2 <- "alt_regs_curr_prev"
+
+note_2 <- "
+Regressions of worker outsourcing status on job outcomes in the NLSY.
+All regressions include controls for job type (traditional job 
+is default) in current (top regressions) or previous 
+(bottom regressions) job. Additional controls are worker and 
+occupation fixed effects, a quartic in age and tenure, dummies for 
+year started and ended job, union status, dummies for region,
+whether in an MSA or central city, and marital status. 
+All observations are at the person-job level, where jobs observed 
+more than once use average or modal characteristics. 
+All regressions are weighted at the person level, and 
+all standard errors are clustered by demographic sample.
+Stars represent significance at the .10 level (*), .05 level (**), 
+and .01 level (***).
+\\item[a] Benefits measure if worker reports access to
+benefit through employer.
+"
+
+header_2 <- make_header("", name_2, label_2, colsep = 1.5)
+d_header_2 <- make_header("d", name_2, label_2, colsep = 1.5)
+
+bot_2 <- make_bot(note_2)
+
+# Save to Folder
+write.table(
+  str_c(header_2, top_2, center_2, bot_2, "\n \\end{document}"), 
+  str_c(table_folder, 
+        "NLSY79 Job Transitions/Current and Previous Outsourced Regressions Alternate.tex"),
+  quote=F, col.names=F, row.names=F, sep="")
+
+# Drafts
+write.table(str_c(d_header_2, top_2, center_2, bot_2),
+            str_c(d_table_folder, 
+                  "Current and Previous Outsourced Regressions Alternate.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Slides
+write.table(str_c(s_header, top_2_s, center_2, s_bot),
+            str_c(s_table_folder, 
+                  "Current and Previous Outsourced Regressions Alternate.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Save Education tables too
+center_c_ed_1 <- center_c_ed |>
+  cbind(c_curr_ed_1)
+
+center_p_ed_1 <- center_p_ed |>
+  cbind(c_prev_ed_1)
+
+center_ed_1 <- center_c_ed_1 |>
+  rbind(center_p_ed_1) |>
+  add_endline(midrule = c(12)) |>
+  center_to_latex()
+
+center_c_ed_2 <- center_c_ed |>
+  cbind(c_curr_ed_2)
+
+center_p_ed_2 <- center_p_ed |>
+  cbind(c_prev_ed_2)
+
+center_ed_2 <- center_c_ed_2 |>
+  rbind(center_p_ed_2) |>
+  add_endline(midrule = c(12)) |>
+  center_to_latex()
+
+name_ed_1 <- "Effect of Previous Job Type on Current Job Quality by Education"
+label_ed_1 <- "regs_curr_prev_ed"
+note_ed_1 <- "
+Regressions of worker outsourcing status interacted with education
+on job outcomes in the NLSY.
+All regressions include controls for job type (traditional job 
+is default) interacted with education in current (top regressions) or previous 
+(bottom regressions) job. Additional controls are worker and 
+occupation fixed effects, a quartic in age and tenure, dummies for 
+year started and ended job, union status, dummies for region,
+whether in an MSA or central city, and marital status. 
+All observations are at the person-job level, where jobs observed 
+more than once use average or modal characteristics. 
+All regressions are weighted at the person level, and 
+all standard errors are clustered by demographic sample.
+Stars represent significance at the .10 level (*), .05 level (**), 
+and .01 level (***).
+\\item[a] Benefits measure if worker reports access to
+benefit through employer.
+\\item[b] Log real total compensation imputed using year,
+occupation, log real weekly wage, access to health insurance
+and retirement benefits.
+"
+
+header_ed_1 <- make_header("", name_ed_1, label_ed_1, colsep = 1.5)
+d_header_ed_1 <- make_header("d", name_ed_1, label_ed_1, colsep = 1.5)
+s_header_ed <- make_header("s", colsep = 0.5)
+
+bot_ed_1 <- make_bot(note_ed_1)
+
+# Save to Folder
+write.table(
+  str_c(header_1, top_1, center_ed_1, bot_ed_1, "\n \\end{document}"), 
+  str_c(table_folder, 
+        "NLSY79 Job Transitions/Current and Previous Outsourced Regressions by Education.tex"),
+  quote=F, col.names=F, row.names=F, sep="")
+
+# Drafts
+write.table(str_c(d_header_1, top_1, center_ed_1, bot_ed_1),
+            str_c(d_table_folder, 
+                  "Current and Previous Outsourced Regressions by Education.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Slides
+write.table(str_c(s_header, top_1_s, center_ed_1, s_bot),
+            str_c(s_table_folder, 
+                  "Current and Previous Outsourced Regressions by Education.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+name_ed_2 <- "Effect of Previous Job Type on Current Job Quality by Education: Alternative Measures"
+label_ed_2 <- "alt_regs_curr_prev_ed"
+note_ed_2 <- "
+Regressions of worker outsourcing status interacted with education
+on job outcomes in the NLSY.
+All regressions include controls for job type (traditional job 
+is default) interacted with education in current (top regressions) or previous 
+(bottom regressions) job. Additional controls are worker and 
+occupation fixed effects, a quartic in age and tenure, dummies for 
+year started and ended job, union status, dummies for region,
+whether in an MSA or central city, and marital status. 
+All observations are at the person-job level, where jobs observed 
+more than once use average or modal characteristics. 
+All regressions are weighted at the person level, and 
+all standard errors are clustered by demographic sample.
+Stars represent significance at the .10 level (*), .05 level (**), 
+and .01 level (***).
+\\item[a] Benefits measure if worker reports access to
+benefit through employer.
+"
+
+header_ed_2 <- make_header("", name_ed_2, label_ed_2, colsep = 1.5)
+d_header_ed_2 <- make_header("d", name_ed_2, label_ed_2, colsep = 1.5)
+s_header_ed <- make_header("s", colsep = 0.5)
+
+bot_ed_2 <- make_bot(note_ed_2)
+
+# Save to Folder
+write.table(
+  str_c(header_2, top_2, center_ed_2, bot_ed_2, "\n \\end{document}"), 
+  str_c(table_folder, 
+        "NLSY79 Job Transitions/Current and Previous Outsourced Regressions by Education Alternative.tex"),
+  quote=F, col.names=F, row.names=F, sep="")
+
+# Drafts
+write.table(str_c(d_header_2, top_2, center_ed_2, bot_ed_2),
+            str_c(d_table_folder, 
+                  "Current and Previous Outsourced Regressions by Education Alternative.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Slides
+write.table(str_c(s_header, top_2_s, center_ed_2, s_bot),
+            str_c(s_table_folder, 
+                  "Current and Previous Outsourced Regressions by Education Alternative.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# And by bachelor's or not
+center_c_hl_1 <- center_c_hl |>
+  cbind(c_curr_hl_1)
+
+center_p_hl_1 <- center_p_hl |>
+  cbind(c_prev_hl_1)
+
+center_hl_1 <- center_c_hl_1 |>
+  rbind(center_p_hl_1) |>
+  add_endline(midrule = c(6)) |>
+  center_to_latex()
+
+center_c_hl_2 <- center_c_hl |>
+  cbind(c_curr_hl_2)
+
+center_p_hl_2 <- center_p_hl |>
+  cbind(c_prev_hl_2)
+
+center_hl_2 <- center_c_hl_2 |>
+  rbind(center_p_hl_2) |>
+  add_endline(midrule = c(6)) |>
+  center_to_latex()
+
+name_hl_1 <- "Effect of Previous Job Type on Current Job Quality by Bachelor's Degree Attainment"
+label_hl_1 <- "regs_curr_prev_hl"
+note_hl_1 <- "
+Regressions of worker outsourcing status interacted with bachelor's 
+degree attainment on job outcomes in the NLSY.
+All regressions include controls for job type (traditional job 
+is default) interacted with bachelor's attainment in current (top regressions) or previous 
+(bottom regressions) job. Additional controls are worker and 
+occupation fixed effects, a quartic in age and tenure, dummies for 
+year started and ended job, union status, dummies for region,
+whether in an MSA or central city, and marital status. 
+All observations are at the person-job level, where jobs observed 
+more than once use average or modal characteristics. 
+All regressions are weighted at the person level, and 
+all standard errors are clustered by demographic sample.
+Stars represent significance at the .10 level (*), .05 level (**), 
+and .01 level (***).
+\\item[a] Benefits measure if worker reports access to
+benefit through employer.
+\\item[b] Log real total compensation imputed using year,
+occupation, log real weekly wage, access to health insurance
+and retirement benefits.
+"
+
+header_hl_1 <- make_header("", name_hl_1, label_hl_1, colsep = 1.5)
+d_header_hl_1 <- make_header("d", name_hl_1, label_hl_1, colsep = 1.5)
+s_header_hl <- make_header("s", colsep = 0.5)
+
+bot_hl_1 <- make_bot(note_hl_1)
+
+# Save to Folder
+write.table(
+  str_c(header_1, top_1, center_hl_1, bot_hl_1, "\n \\end{document}"), 
+  str_c(table_folder, 
+        "NLSY79 Job Transitions/Current and Previous Outsourced Regressions by Education HL.tex"),
+  quote=F, col.names=F, row.names=F, sep="")
+
+# Drafts
+write.table(str_c(d_header_1, top_1, center_hl_1, bot_hl_1),
+            str_c(d_table_folder, 
+                  "Current and Previous Outsourced Regressions by Education HL.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Slides
+write.table(str_c(s_header, top_1_s, center_hl_1, s_bot),
+            str_c(s_table_folder, 
+                  "Current and Previous Outsourced Regressions by Education HL.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+name_hl_2 <- "Effect of Previous Job Type on Current Job Quality by Bachelor's Degree Attainment: Alternative Measures"
+label_hl_2 <- "alt_regs_curr_prev_hl"
+note_hl_2 <- "
+Regressions of worker outsourcing status interacted with bachelor's 
+degree attainment on job outcomes in the NLSY.
+All regressions include controls for job type (traditional job 
+is default) interacted with bachelor's attainment in current (top regressions) or previous 
+(bottom regressions) job. Additional controls are worker and 
+occupation fixed effects, a quartic in age and tenure, dummies for 
+year started and ended job, union status, dummies for region,
+whether in an MSA or central city, and marital status. 
+All observations are at the person-job level, where jobs observed 
+more than once use average or modal characteristics. 
+All regressions are weighted at the person level, and 
+all standard errors are clustered by demographic sample.
+Stars represent significance at the .10 level (*), .05 level (**), 
+and .01 level (***).
+\\item[a] Benefits measure if worker reports access to
+benefit through employer.
+"
+
+header_hl_2 <- make_header("", name_hl_2, label_hl_2, colsep = 1.5)
+d_header_hl_2 <- make_header("d", name_hl_2, label_hl_2, colsep = 1.5)
+s_header_hl <- make_header("s", colsep = 0.5)
+
+bot_hl_2 <- make_bot(note_hl_2)
+
+# Save to Folder
+write.table(
+  str_c(header_2, top_2, center_hl_2, bot_hl_2, "\n \\end{document}"), 
+  str_c(table_folder, 
+        "NLSY79 Job Transitions/Current and Previous Outsourced Regressions by Education HL Alternative.tex"),
+  quote=F, col.names=F, row.names=F, sep="")
+
+# Drafts
+write.table(str_c(d_header_2, top_2, center_hl_2, bot_hl_2),
+            str_c(d_table_folder, 
+                  "Current and Previous Outsourced Regressions by Education HL Alternative.tex"),
+            quote=F, col.names=F, row.names=F, sep="")
+
+# Slides
+write.table(str_c(s_header, top_2_s, center_hl_2, s_bot),
+            str_c(s_table_folder, 
+                  "Current and Previous Outsourced Regressions by Education HL Alternative.tex"),
             quote=F, col.names=F, row.names=F, sep="")
